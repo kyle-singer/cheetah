@@ -2,16 +2,20 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <criterion/criterion.h>
+#include <criterion/new/assert.h>
+
+// TODO: Use a mocking library
 // Dummy implementation of __cilkrts_get_worker_number.
 unsigned __cilkrts_get_worker_number(void) { return 0; }
 
 #define CHEETAH_INTERNAL
-#include "../runtime/local-hypertable.h"
+#include "runtime/local-hypertable.h"
 
 #define TRACE 0
 
 // Print additional trace information if TRACE == 1.
-void PRINT_TRACE(const char *fmt, ...) {
+static inline void PRINT_TRACE(const char *fmt, ...) {
 #if TRACE
     va_list l;
     va_start(l, fmt);
@@ -31,6 +35,19 @@ typedef struct table_command {
     uintptr_t key;
 } table_command;
 
+/*static hyper_table *local_table = NULL;
+
+void init_hypertable_tests(void) {
+    local_table = __cilkrts_local_hyper_table_alloc();
+}
+
+void fini_hypertable_tests(void) {
+    local_hyper_table_free(local_table);
+    local_table = NULL;
+}
+
+TestSuite(local_hypertable, .init = init_hypertable_tests, .fini = fini_hypertable_tests);*/
+
 // Check the entries of a hyper_table to verify that key appears exactly
 // expected_count times.  Optionally print the entries of hyper_table.
 void check_hypertable(hyper_table *table, uintptr_t key, int32_t expected_count) {
@@ -47,10 +64,10 @@ void check_hypertable(hyper_table *table, uintptr_t key, int32_t expected_count)
             if (is_valid(key) && buckets[i].key == key)
                 key_count++;
         }
-        if (key_count != expected_count)
-            PRINT_TRACE("ERROR: Unexpected count (%d != %d) for key 0x%lx!\n",
-                        key_count, expected_count, key);
-        assert(key_count == expected_count);
+
+        cr_assert(eq(sz, key_count, expected_count),
+                "ERROR: Unexpected count for key 0x%lx!\n", key);
+
         return;
     }
 
@@ -61,10 +78,9 @@ void check_hypertable(hyper_table *table, uintptr_t key, int32_t expected_count)
         if (is_valid(key) && buckets[i].key == key)
             key_count++;
     }
-    if (key_count != expected_count)
-        PRINT_TRACE("ERROR: Unexpected count (%d != %d) for key 0x%lx!\n",
-                    key_count, expected_count, key);
-    assert(key_count == expected_count);
+
+    cr_assert(eq(sz, key_count, expected_count),
+            "ERROR: Unexpected count for key 0x%lx!\n", key);
 }
 
 // Parse and execute a table_command on a hyper_table.
@@ -76,7 +92,7 @@ void do_table_command(hyper_table *table, table_command cmd) {
             table, (struct bucket){
                        .key = cmd.key,
                        .value = {.view = (void *)cmd.key, .reduce_fn = NULL}});
-        assert(success && "insert_hyperobject failed");
+        cr_assert(success, "insert_hyperobject failed");
         check_hypertable(table, cmd.key, 1);
         break;
     }
@@ -87,7 +103,7 @@ void do_table_command(hyper_table *table, table_command cmd) {
     case TABLE_DELETE: {
         PRINT_TRACE("DELETE 0x%lx\n", cmd.key);
         bool success = remove_hyperobject(table, cmd.key);
-        assert(success && "remove_hyperobject failed");
+        cr_assert(success, "remove_hyperobject failed");
         check_hypertable(table, cmd.key, 0);
         break;
     }
@@ -104,9 +120,96 @@ void test_insert_remove(const table_command *commands, int num_commands) {
     local_hyper_table_free(table);
 }
 
-int main(int argc, char *argv[]) {
+Test(local_hypertable, single_insert) {
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0x317},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0x42},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+}
+
+Test(local_hypertable, insert_then_remove) {
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0xdeadbeef},
+            {TABLE_DELETE, 0xdeadbeef},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0xcafef00d},
+            {TABLE_DELETE, 0xcafef00d},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+}
+
+Test(local_hypertable, insert_remove_with_inserts_between) {
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0x123456},
+            {TABLE_INSERT, 0x864210},
+            {TABLE_DELETE, 0x123456},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0xa991e5},
+            {TABLE_INSERT, 0x56713295},
+            {TABLE_INSERT, 0x1},
+            {TABLE_DELETE, 0xa991e5},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+}
+
+Test(local_hypertable, multiple_insert) {
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0x12345},
+            {TABLE_INSERT, 0x12345},
+            {TABLE_INSERT, 0x12345},
+            {TABLE_INSERT, 0x12345},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+}
+
+Test(local_hypertable, multiple_delete_fails) {
+    {
+        table_command cmd_sequence[] = {
+            {TABLE_INSERT, 0x12345},
+            {TABLE_INSERT, 0x12345},
+            {TABLE_INSERT, 0x12345},
+            {TABLE_INSERT, 0x12345},
+        };
+
+        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    }
+}
+
+Test(local_hypertable, simple_trace) {
     // Simple test case
-    table_command test1[] = {
+    table_command cmd_sequence[] = {
         {TABLE_INSERT, 0x1},
         {TABLE_INSERT, 0x2},
         {TABLE_INSERT, 0x3},
@@ -142,11 +245,12 @@ int main(int argc, char *argv[]) {
         {TABLE_DELETE, 0xe},
         {TABLE_DELETE, 0xf},
     };
-    test_insert_remove(test1, sizeof(test1)/sizeof(table_command));
-    printf("test1 PASSED\n");
+    test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+}
 
-    // Test case derived from trace that led to errors.
-    table_command test2[] = {
+// Test case derived from trace that led to errors.
+Test(local_hypertable, tricky_trace) {
+    table_command cmd_sequence[] = {
         {TABLE_INSERT, 0x7f2a10bfe050},
         {TABLE_INSERT, 0x7f2a10bff968},
         {TABLE_INSERT, 0x7f2a10bfe8a8},
@@ -190,7 +294,5 @@ int main(int argc, char *argv[]) {
 
         {TABLE_INSERT, 0x7f2a10bfe480},
     };
-    test_insert_remove(test2, sizeof(test2)/sizeof(table_command));
-    printf("test2 PASSED\n");
-    return 0;
+    test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
 }

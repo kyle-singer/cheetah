@@ -9,3 +9,9 @@
 
 # Unignore Makefiles
 !Makefile
+
+# Re-ignore object files
+*.o
+
+# Re-ignore swp files
+*.swp
