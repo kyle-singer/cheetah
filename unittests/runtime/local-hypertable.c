@@ -1,9 +1,11 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <signal.h>
 
 #include <criterion/criterion.h>
 #include <criterion/new/assert.h>
+#include <criterion/parameterized.h>
 
 // TODO: Use a mocking library
 // Dummy implementation of __cilkrts_get_worker_number.
@@ -120,65 +122,113 @@ void test_insert_remove(const table_command *commands, int num_commands) {
     local_hyper_table_free(table);
 }
 
-Test(local_hypertable, single_insert) {
-    {
-        table_command cmd_sequence[] = {
-            {TABLE_INSERT, 0x317},
-        };
+ParameterizedTestParameters(local_hypertable, single_insert) {
+    static int params[] = {
+        0x42, 0xdeadbeef, 0x1, 0x2a    
+    };
 
-        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
-    }
-
-    {
-        table_command cmd_sequence[] = {
-            {TABLE_INSERT, 0x42},
-        };
-
-        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
-    }
+    size_t nb_params = sizeof (params) / sizeof (params[0]);
+    return cr_make_param_array(int, params, nb_params);
 }
 
-Test(local_hypertable, insert_then_remove) {
-    {
-        table_command cmd_sequence[] = {
-            {TABLE_INSERT, 0xdeadbeef},
-            {TABLE_DELETE, 0xdeadbeef},
-        };
+ParameterizedTest(int *value_to_insert, local_hypertable, single_insert) {
+    table_command cmd_sequence[] = {
+        {TABLE_INSERT, *value_to_insert},
+    };
 
-        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
-    }
-
-    {
-        table_command cmd_sequence[] = {
-            {TABLE_INSERT, 0xcafef00d},
-            {TABLE_DELETE, 0xcafef00d},
-        };
-
-        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
-    }
+    test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
 }
 
-Test(local_hypertable, insert_remove_with_inserts_between) {
-    {
-        table_command cmd_sequence[] = {
-            {TABLE_INSERT, 0x123456},
-            {TABLE_INSERT, 0x864210},
-            {TABLE_DELETE, 0x123456},
-        };
+ParameterizedTestParameters(local_hypertable, cannot_insert_reserved_vals) {
+    static uintptr_t params[] = {
+        KEY_EMPTY, KEY_DELETED
+    };
 
-        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    size_t nb_params = sizeof (params) / sizeof (params[0]);
+    return cr_make_param_array(uintptr_t, params, nb_params);
+}
+
+ParameterizedTest(uintptr_t *value_to_insert, local_hypertable, cannot_insert_reserved_vals, .signal = SIGABRT) {
+    table_command cmd_sequence[] = {
+        {TABLE_INSERT, *value_to_insert},
+    };
+
+    test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+}
+
+ParameterizedTestParameters(local_hypertable, insert_then_remove) {
+    static int params[] = {
+        0xdeadbeef, 0xcafef00d, 0xfeed3e, 0x1
+    };
+
+    size_t nb_params = sizeof (params) / sizeof (params[0]);
+    return cr_make_param_array(int, params, nb_params);
+}
+
+ParameterizedTest(int *value_to_insert, local_hypertable, insert_then_remove) {
+    table_command cmd_sequence[] = {
+        {TABLE_INSERT, *value_to_insert},
+        {TABLE_DELETE, *value_to_insert},
+    };
+
+    test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+}
+
+typedef struct int_array {
+    size_t size;
+    int *arr;
+} int_array;
+
+void cleanup_int_array(struct criterion_test_params *ctp) {
+    cr_free(((struct int_array *) ctp->params)->arr);
+}
+
+ParameterizedTestParameters(local_hypertable, insert_remove_with_inserts_between) {
+    static int_array params[] = {
+        { .size = 2, .arr = NULL },
+        { .size = 3, .arr = NULL }, 
+        { .size = 6, .arr = NULL },
+        { .size = 9, .arr = NULL },
+    };
+
+    size_t nb_params = sizeof (params) / sizeof (params[0]);
+
+    for (int i = 0; i < (int) nb_params; ++i) {
+        params[i].arr = (int*) cr_malloc(params[i].size * sizeof(int));
     }
 
-    {
-        table_command cmd_sequence[] = {
-            {TABLE_INSERT, 0xa991e5},
-            {TABLE_INSERT, 0x56713295},
-            {TABLE_INSERT, 0x1},
-            {TABLE_DELETE, 0xa991e5},
-        };
+    int array_0[] = {0x123456, 0x864210};
+    memcpy(params[0].arr, array_0, params[0].size * sizeof(int));
 
-        test_insert_remove(cmd_sequence, sizeof(cmd_sequence)/sizeof(table_command));
+    int array_1[] = {0xa991e5, 0x56713295, 0x1};
+    memcpy(params[1].arr, array_1, params[1].size * sizeof(int));
+
+    int array_2[] = {0x56713295, 0x1, 0x123456, 0xa991e5, 0xf00dcafe, 0x93};
+    memcpy(params[2].arr, array_2, params[2].size * sizeof(int));
+
+    int array_3[] = {0x9857, 0x134809, 0x137, 0x10984, 0x923498, 0x823098, 0x56, 0x78, 0x10000};
+    memcpy(params[3].arr, array_3, params[3].size * sizeof(int));
+
+    return cr_make_param_array(int_array, params, nb_params, cleanup_int_array);
+}
+
+ParameterizedTest(int_array *arr, local_hypertable, insert_remove_with_inserts_between) {
+    // Number to be inserted from the array, plus 1 deletion
+    int sequence_size = arr->size + 1;
+
+    table_command *cmd_sequence = (table_command*) malloc(sequence_size * sizeof(table_command));
+
+    // Fill in all the values to be inserted
+    for (int i = 0; i < (int) arr->size; ++i) {
+        cmd_sequence[i].type = TABLE_INSERT;
+        cmd_sequence[i].key = arr->arr[i];
     }
+
+    // Delete only the first item
+    cmd_sequence[arr->size].type = TABLE_DELETE;
+    cmd_sequence[arr->size].key = arr->arr[0];
+
+    test_insert_remove(cmd_sequence, sequence_size);
 }
 
 Test(local_hypertable, multiple_insert) {
