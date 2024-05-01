@@ -1676,6 +1676,9 @@ void *scheduler_thread_proc(void *arg) {
                 disengage_worker(rts, nworkers, self);
                 l->wake_val = thief_wait(rts);
                 reengage_worker(rts, nworkers, self);
+                if (l->wake_val > 1) {
+                    signal_sleeping_thief(rts);
+                }
             }
 #if !BOSS_THIEF
         }

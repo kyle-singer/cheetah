@@ -405,7 +405,7 @@ static inline void wake_thieves(global_state *g) {
 #if USE_FUTEX
     atomic_store_explicit(&g->disengaged_thieves_futex, g->nworkers - 1,
                           memory_order_release);
-    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, INT_MAX,
+    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
                    NULL, NULL, 0);
     if (s == -1)
         errExit("futex-FUTEX_WAKE");
@@ -413,7 +413,20 @@ static inline void wake_thieves(global_state *g) {
     pthread_mutex_lock(&g->disengaged_lock);
     atomic_store_explicit(&g->disengaged_thieves_futex, g->nworkers - 1,
                           memory_order_release);
-    pthread_cond_broadcast(&g->disengaged_cond_var);
+    pthread_cond_signal(&g->disengaged_cond_var);
+    pthread_mutex_unlock(&g->disengaged_lock);
+#endif
+}
+
+static inline void signal_sleeping_thief(global_state *const g) {
+#if USE_FUTEX
+    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
+                   NULL, NULL, 0);
+    if (s == -1)
+        errExit("futex-FUTEX_WAKE");
+#else
+    pthread_mutex_lock(&g->disengaged_lock);
+    pthread_cond_signal(&g->disengaged_cond_var);
     pthread_mutex_unlock(&g->disengaged_lock);
 #endif
 }
