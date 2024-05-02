@@ -1663,7 +1663,7 @@ void *scheduler_thread_proc(void *arg) {
 
     CILK_START_TIMING(w, INTERVAL_SLEEP_UNCILK);
     do {
-        l->wake_val = nworkers;
+        uint32_t wake_val = nworkers;
         // Wait for g->start == 1 to start executing the work-stealing loop.  We
         // use a condition variable to wait on g->start, because this approach
         // seems to result in better performance.
@@ -1674,15 +1674,18 @@ void *scheduler_thread_proc(void *arg) {
 #endif
             if (thief_should_wait(rts)) {
                 disengage_worker(rts, nworkers, self);
-                l->wake_val = thief_wait(rts);
+                wake_val = thief_wait(rts);
                 reengage_worker(rts, nworkers, self);
-                if (l->wake_val > 1) {
+                if (wake_val > 1) {
                     signal_sleeping_thief(rts);
                 }
             }
+
+
 #if !BOSS_THIEF
         }
 #endif
+        l->wake_val = wake_val;
         CILK_STOP_TIMING(w, INTERVAL_SLEEP_UNCILK);
 
         // Check if we should exit this scheduling function.
