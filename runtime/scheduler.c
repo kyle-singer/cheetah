@@ -73,8 +73,7 @@ static unsigned int get_rand(unsigned int state) {
 static void worker_change_state(__cilkrts_worker *w,
                                 enum __cilkrts_worker_state s) {
     /* TODO: Update statistics based on state change. */
-    CILK_ASSERT_MSG(w, w->l->state != s, "Worker tried to change to a state it was already in!");
-    CILK_ASSERT_MSG(w, w->l->state == s, "Worker tried to change to a state it was already in!");
+    CILK_ASSERT(w, w->l->state != s);
     w->l->state = s;
 #if 0
     /* This is a valuable assertion but there is no way to make it
