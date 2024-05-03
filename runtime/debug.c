@@ -40,8 +40,7 @@ void set_alert_level(unsigned int level) {
 
 void set_debug_level(unsigned int level) { debug_level = level; }
 
-const char *const __cilkrts_assertion_failed =
-    "%s:%d: cilk assertion failed: %s\n";
+const char *const __cilkrts_assertion_failed = __CILKRTS_ASSERTION_FAIL_STR;
 
 void cilk_die_internal(struct global_state *const g, const char *fmt, ...) {
     fflush(stdout);

@@ -75,12 +75,20 @@ cilkrts_alert(int lvl, struct __cilkrts_worker *w, const char *fmt, ...);
 #define cilkrts_alert(lvl, fmt, ...)
 #endif
 
+#define __CILKRTS_ASSERTION_FAIL_STR "%s:%d: cilk assertion failed: %s\n"
+
 #if CILK_DEBUG
 
 #define WHEN_CILK_DEBUG(ex) ex
 
 /** Standard text for failed assertion */
 CHEETAH_INTERNAL extern const char *const __cilkrts_assertion_failed;
+
+#define CILK_ASSERT_MSG(w, ex, fmt, ...)                                       \
+    (__builtin_expect((ex) != 0, 1)                                            \
+         ? (void)0                                                             \
+         : cilkrts_bug(w, __CILKRTS_ASSERTION_FAIL_STR "\t" fmt, __FILE__,     \
+                       __LINE__,  #ex __VA_OPT__(, __VA_ARGS__)))
 
 #define CILK_ASSERT(w, ex)                                                     \
     (__builtin_expect((ex) != 0, 1)                                            \
