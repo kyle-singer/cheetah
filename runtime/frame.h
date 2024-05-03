@@ -90,7 +90,11 @@ static const uint32_t frame_magic =
        13) +
       offsetof(struct __cilkrts_stack_frame, extension)));
 
-#define CHECK_CILK_FRAME_MAGIC(G, F) (frame_magic == (F)->magic)
+#define EXPECTED_CILK_FRAME_MAGIC(G) (frame_magic)
+#define CILK_FRAME_MAGIC(F) ((F)->magic)
+
+#define CHECK_CILK_FRAME_MAGIC(G, F) (EXPECTED_CILK_FRAME_MAGIC(G) == CILK_FRAME_MAGIC(F))
+
 
 //===========================================================
 // Helper functions for the flags field in cilkrts_stack_frame

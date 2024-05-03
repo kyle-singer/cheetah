@@ -137,6 +137,7 @@ CHEETAH_INTERNAL extern const char *const __cilkrts_assertion_failed;
     cilkrts_bug(NULL, __cilkrts_assertion_failed_g, __FILE__, __LINE__, msg)
 
 #else
+#define CILK_ASSERT_MSG(w, ex, fmt, ...)
 #define CILK_ASSERT(w, ex)
 #define CILK_ASSERT_POINTER_EQUAL(w, P1, P2)
 #define CILK_ASSERT_ZERO(w, ex, FMT)

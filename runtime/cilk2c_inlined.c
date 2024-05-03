@@ -153,7 +153,10 @@ __cilkrts_detach(__cilkrts_stack_frame *sf) {
     __cilkrts_worker *w = get_worker_from_stack(sf);
     cilkrts_alert(CFRAME, w, "__cilkrts_detach %p", (void *)sf);
 
-    CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
+    CILK_ASSERT_MSG(w, CHECK_CILK_FRAME_MAGIC(w->g, sf),
+                    "Attempted to detach on a corrupted stack frame\n\texpected "
+                    "magic: 0x%X, actual magic: 0x%X",
+                    EXPECTED_CILK_FRAME_MAGIC(w->g), CILK_FRAME_MAGIC(sf));
 
     struct __cilkrts_stack_frame *parent = sf->call_parent;
 
@@ -164,7 +167,9 @@ __cilkrts_detach(__cilkrts_stack_frame *sf) {
     sf->flags |= CILK_FRAME_DETACHED;
     struct __cilkrts_stack_frame **tail =
         atomic_load_explicit(&w->tail, memory_order_relaxed);
-    CILK_ASSERT(w, (tail + 1) < w->ltq_limit);
+    CILK_ASSERT_MSG(w, (tail + 1) < w->ltq_limit,
+                    "Worker deque overflow\n\ttail = %p, ltq_limit = %p",
+                    (tail + 1), w->ltq_limit);
 
     // store parent at *tail, and then increment tail
     *tail++ = parent;

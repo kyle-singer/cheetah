@@ -108,7 +108,8 @@ void __cilkrts_cleanup_fiber(__cilkrts_stack_frame *sf, int32_t sel) {
     __cilkrts_worker *w = get_worker_from_stack(sf);
     CILK_ASSERT_POINTER_EQUAL(w, w, __cilkrts_get_tls_worker());
 
-    CILK_ASSERT(w, __cilkrts_synced(sf));
+    CILK_ASSERT_MSG(w, __cilkrts_synced(sf),
+                    "Attempted cleanup the fiber of an unsynced stack frame");
 
     struct closure_exception *exn_r = get_exception_reducer_or_null(w);
     struct cilk_fiber *throwing_fiber = NULL;
@@ -155,7 +156,10 @@ void __cilkrts_sync(__cilkrts_stack_frame *sf) {
     __cilkrts_worker *w = get_worker_from_stack(sf);
     CILK_ASSERT_POINTER_EQUAL(w, w, __cilkrts_get_tls_worker());
 
-    CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
+    CILK_ASSERT_MSG(w, CHECK_CILK_FRAME_MAGIC(w->g, sf),
+                    "Attempted to sync on a corrupted stack frame\n\texpected "
+                    "magic: 0x%X, actual magic: 0x%X",
+                    EXPECTED_CILK_FRAME_MAGIC(w->g), CILK_FRAME_MAGIC(sf));
 
     if (Cilk_sync(w, sf) == SYNC_READY) {
         // The Cilk_sync restores the original rsp stored in sf->ctx
