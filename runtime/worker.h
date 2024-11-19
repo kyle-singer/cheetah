@@ -38,9 +38,11 @@ struct __cilkrts_worker {
 
     // T, H, and E pointers in the THE protocol.
     // T and E are frequently accessed and should be in a hot cache line.
+    // E and pointer to worker's current closure is stored in a 128-bit struct
     // H could be moved elsewhere because it is only touched when stealing.
     _Atomic(struct __cilkrts_stack_frame **) tail;
-    _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
+    _Atomic(double_ptr) exc_closure __attribute__((aligned(64)));
+    // _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
     _Atomic(struct __cilkrts_stack_frame **) head __attribute__((aligned(CILK_CACHE_LINE)));
 
     // Limit of the Lazy Task Queue, to detect queue overflow (debug only)

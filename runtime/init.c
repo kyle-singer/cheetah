@@ -118,7 +118,7 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
     __cilkrts_stack_frame **init = w->l->shadow_stack + 1;
     atomic_store_explicit(&w->tail, init, memory_order_relaxed);
     atomic_store_explicit(&w->head, init, memory_order_relaxed);
-    atomic_store_explicit(&w->exc, init, memory_order_relaxed);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_relaxed);
     if (i != 0) {
         w->hyper_table = NULL;
     }

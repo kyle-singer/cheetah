@@ -430,4 +430,21 @@ static inline void Closure_destroy_global(struct global_state *const g,
     cilk_internal_free_global(g, t, sizeof(*t), IM_CLOSURE);
 }
 
+static inline __attribute__((always_inline)) double_ptr 
+pack_pointers(__cilkrts_stack_frame ** ptr1, Closure * ptr2) {
+    return ((double_ptr)ptr1 << 64) | (uintptr_t)ptr2;
+}
+
+static inline __attribute__((always_inline)) __cilkrts_stack_frame ** 
+unpack_exc(double_ptr packed) {
+    // Store exception pointer in high bits
+    return (__cilkrts_stack_frame **)(packed >> 64);
+}
+
+static inline __attribute__((always_inline)) Closure * 
+unpack_closure(double_ptr packed) {
+    // Store closure pointer in low bits
+    return (Closure *)packed;
+}
+
 #endif

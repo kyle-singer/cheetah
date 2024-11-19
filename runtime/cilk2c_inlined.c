@@ -281,8 +281,11 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
     /* The store of tail must precede the load of exc in global order.  See
        comment in do_dekker_on. */
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-    __cilkrts_stack_frame **exc =
-            atomic_load_explicit(&w->exc, memory_order_seq_cst);
+    double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+    __cilkrts_stack_frame **exc = unpack_exc(exc_closure);
+            
+    // __cilkrts_stack_frame **exc =
+    //         atomic_load_explicit(&w->exc, memory_order_seq_cst);
     /* Currently no other modifications of flags are atomic so this one isn't
        either.  If the thief wins it may run in parallel with the clear of
        DETACHED.  Does it modify flags too? */
@@ -351,7 +354,7 @@ void __cilkrts_pause_frame(__cilkrts_stack_frame *sf, char *exn) {
            See comment in do_dekker_on. */
         atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
         __cilkrts_stack_frame **exc =
-            atomic_load_explicit(&w->exc, memory_order_seq_cst);
+            unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
         /* Currently no other modifications of flags are atomic so this
            one isn't either.  If the thief wins it may run in parallel
            with the clear of DETACHED.  Does it modify flags too? */

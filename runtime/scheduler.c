@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <cpuid.h>
 #ifdef __linux__
 #include <sched.h>
 #endif
@@ -95,12 +96,13 @@ static void increment_exception_pointer(__cilkrts_worker *const w,
     Closure_assert_ownership(w, self, cl);
     CILK_ASSERT(w, cl->status == CLOSURE_RUNNING);
 
-    __cilkrts_stack_frame **exc =
-        atomic_load_explicit(&victim_w->exc, memory_order_relaxed);
+    double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_relaxed);
+    __cilkrts_stack_frame **exc = unpack_exc(exc_closure);
+    Closure * closure = unpack_closure(exc_closure);
     if (exc != EXCEPTION_INFINITY) {
         /* SEQ_CST order is required between increment of exc and test of tail.
          Currently do_dekker_on has a fence. */
-        atomic_store_explicit(&victim_w->exc, exc + 1, memory_order_relaxed);
+        atomic_store_explicit(&victim_w->exc_closure, pack_pointers(exc + 1, closure), memory_order_relaxed);
     }
 }
 
@@ -112,10 +114,12 @@ static void decrement_exception_pointer(__cilkrts_worker *const w,
     // It's possible that this steal attempt peeked the root closure from the
     // top of a deque while a new Cilkified region was starting.
     CILK_ASSERT(w, cl->status == CLOSURE_RUNNING || cl == w->g->root_closure);
-    __cilkrts_stack_frame **exc =
-        atomic_load_explicit(&victim_w->exc, memory_order_relaxed);
+    double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_relaxed);
+    __cilkrts_stack_frame **exc = unpack_exc(exc_closure);
+    Closure * closure = unpack_closure(exc_closure);
+
     if (exc != EXCEPTION_INFINITY) {
-        atomic_store_explicit(&victim_w->exc, exc - 1, memory_order_relaxed);
+        atomic_store_explicit(&victim_w->exc_closure, pack_pointers(exc - 1, closure), memory_order_relaxed);
     }
 }
 
@@ -123,8 +127,8 @@ static void reset_exception_pointer(__cilkrts_worker *const w, worker_id self,
                                     Closure *cl) {
     Closure_assert_ownership(w, self, cl);
     CILK_ASSERT(w, (cl->frame == NULL) || (cl->fiber->worker == w));
-    atomic_store_explicit(&w->exc,
-                          atomic_load_explicit(&w->head, memory_order_relaxed),
+    atomic_store_explicit(&w->exc_closure,
+                          pack_pointers(atomic_load_explicit(&w->head, memory_order_relaxed), cl),
                           memory_order_release);
 }
 
@@ -150,7 +154,7 @@ static void setup_for_execution(__cilkrts_worker *w, Closure *t) {
 
     __cilkrts_stack_frame **init = w->l->shadow_stack;
     atomic_store_explicit(&w->head, init, memory_order_relaxed);
-    atomic_store_explicit(&w->exc, init, memory_order_relaxed);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_relaxed);
     atomic_store_explicit(&w->tail, init, memory_order_release);
 
     /* push the first frame on the current_stack_frame */
