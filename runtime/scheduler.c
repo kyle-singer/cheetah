@@ -1605,7 +1605,10 @@ void worker_scheduler(__cilkrts_worker *w) {
                    atomic_load_explicit(&rts->done, memory_order_relaxed)) {
                 busy_pause();
             }
-            if (thief_should_wait(rts)) {
+            const uint32_t local_wake = take_current_wake_value(rts);
+            /*if (local_wake == (nworkers - 1u)) {
+                deferred_wake_thieves(rts);
+            } else */if (thief_should_wait(local_wake)) {
                 break;
             }
         }
@@ -1652,11 +1655,18 @@ void *scheduler_thread_proc(void *arg) {
         // Wait for g->start == 1 to start executing the work-stealing loop.  We
         // use a condition variable to wait on g->start, because this approach
         // seems to result in better performance.
-        if (thief_should_wait(rts)) {
+        uint32_t local_wake = take_current_wake_value(rts);
+        if (thief_should_wait(local_wake)) {
             disengage_worker(rts, nworkers, self);
-            l->wake_val = thief_wait(rts);
+            local_wake = thief_wait(rts);
+            l->wake_val = local_wake;
             reengage_worker(rts, nworkers, self);
+            deferred_wake_thieves(rts);
         }
+
+        //if (local_wake == (rts->nworkers - 1u)) {
+        //    deferred_wake_thieves(rts);
+        //}
         CILK_STOP_TIMING(w, INTERVAL_SLEEP_UNCILK);
 
         // Check if we should exit this scheduling function.
