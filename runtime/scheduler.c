@@ -154,10 +154,10 @@ static void setup_for_execution(__cilkrts_worker *w, Closure *t) {
     Closure_set_status(w, t, CLOSURE_RUNNING);
 
     __cilkrts_stack_frame **init = w->l->shadow_stack;
-    atomic_store_explicit(&w->head, init, memory_order_seq_cst);
+    atomic_store_explicit(&w->tail, init, memory_order_release); 
     atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
     atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_seq_cst);
-    atomic_store_explicit(&w->tail, init, memory_order_release);    
+    atomic_store_explicit(&w->head, init, memory_order_seq_cst);
     
     /* push the first frame on the current_stack_frame */
     __cilkrts_stack_frame *sf = t->frame;
