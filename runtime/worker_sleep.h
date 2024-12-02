@@ -109,7 +109,7 @@ __attribute__((always_inline)) static inline uint64_t
 add_to_disengaged(global_state *const rts, int32_t val) {
     while (true) {
         uint64_t disengaged_sentinel = atomic_load_explicit(
-            &rts->disengaged_sentinel, memory_order_relaxed);
+            &rts->disengaged_sentinel, memory_order_seq_cst);
         uint32_t disengaged = GET_DISENGAGED(disengaged_sentinel);
         uint32_t sentinel = GET_SENTINEL(disengaged_sentinel);
         uint64_t new_disengaged_sentinel =
@@ -170,7 +170,7 @@ static bool try_to_disengage_thief(global_state *g, worker_id self,
         while (true) {
             // Atomically decrement the number of disengaged workers.
             uint64_t disengaged_sentinel = atomic_load_explicit(
-                &g->disengaged_sentinel, memory_order_relaxed);
+                &g->disengaged_sentinel, memory_order_seq_cst);
             uint32_t disengaged = GET_DISENGAGED(disengaged_sentinel);
             uint32_t sentinel = GET_SENTINEL(disengaged_sentinel);
             new_disengaged_sentinel =
@@ -330,7 +330,7 @@ maybe_reengage_workers(global_state *const rts, worker_id self,
         if (request == 0 && counts.sentinels == 0 &&
             counts.active < (int32_t)nworkers) {
             int32_t current_request = atomic_load_explicit(
-                &rts->disengaged_thieves_futex, memory_order_relaxed);
+                &rts->disengaged_thieves_futex, memory_order_seq_cst);
             if (current_request < ((counts.active + 3) / 4)) {
                 request = ((counts.active + 3) / 4) - current_request;
                 WHEN_SCHED_STATS(w->l->stats.onesen_rqsts += request);
@@ -505,7 +505,7 @@ handle_failed_steal_attempts(global_state *const rts, worker_id self,
                                 uint64_t disengaged_sentinel =
                                     atomic_load_explicit(
                                         &rts->disengaged_sentinel,
-                                        memory_order_relaxed);
+                                        memory_order_seq_cst);
                                 uint32_t current_sentinel_count =
                                     GET_SENTINEL(disengaged_sentinel);
                                 for (int i = 0; i < SENTINEL_COUNT_HISTORY; ++i)

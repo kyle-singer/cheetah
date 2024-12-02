@@ -96,13 +96,12 @@ static void increment_exception_pointer(__cilkrts_worker *const w,
     Closure_assert_ownership(w, self, cl);
     CILK_ASSERT(w, cl->status == CLOSURE_RUNNING);
 
-    double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_relaxed);
-    __cilkrts_stack_frame **exc = unpack_exc(exc_closure);
-    Closure * closure = unpack_closure(exc_closure);
+    __cilkrts_stack_frame **exc =
+        atomic_load_explicit(&victim_w->exc, memory_order_seq_cst);
     if (exc != EXCEPTION_INFINITY) {
         /* SEQ_CST order is required between increment of exc and test of tail.
          Currently do_dekker_on has a fence. */
-        atomic_store_explicit(&victim_w->exc_closure, pack_pointers(exc + 1, closure), memory_order_relaxed);
+        atomic_store_explicit(&victim_w->exc, exc + 1, memory_order_seq_cst);
     }
 }
 
@@ -114,12 +113,10 @@ static void decrement_exception_pointer(__cilkrts_worker *const w,
     // It's possible that this steal attempt peeked the root closure from the
     // top of a deque while a new Cilkified region was starting.
     CILK_ASSERT(w, cl->status == CLOSURE_RUNNING || cl == w->g->root_closure);
-    double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_relaxed);
-    __cilkrts_stack_frame **exc = unpack_exc(exc_closure);
-    Closure * closure = unpack_closure(exc_closure);
-
+    __cilkrts_stack_frame **exc =
+        atomic_load_explicit(&victim_w->exc, memory_order_seq_cst);
     if (exc != EXCEPTION_INFINITY) {
-        atomic_store_explicit(&victim_w->exc_closure, pack_pointers(exc - 1, closure), memory_order_relaxed);
+        atomic_store_explicit(&victim_w->exc, exc - 1, memory_order_seq_cst);
     }
 }
 
@@ -127,8 +124,11 @@ static void reset_exception_pointer(__cilkrts_worker *const w, worker_id self,
                                     Closure *cl) {
     Closure_assert_ownership(w, self, cl);
     CILK_ASSERT(w, (cl->frame == NULL) || (cl->fiber->worker == w));
+    atomic_store_explicit(&w->exc,
+                          atomic_load_explicit(&w->head, memory_order_seq_cst),
+                          memory_order_release);
     atomic_store_explicit(&w->exc_closure,
-                          pack_pointers(atomic_load_explicit(&w->head, memory_order_relaxed), cl),
+                          pack_pointers(atomic_load_explicit(&w->head, memory_order_seq_cst), cl),
                           memory_order_release);
 }
 
@@ -146,6 +146,7 @@ static void signal_immediate_exception_to_all(__cilkrts_worker *const w) {
 }
 */
 
+// used by a thief getting ready to execute a stolen computation
 static void setup_for_execution(__cilkrts_worker *w, Closure *t) {
     cilkrts_alert(SCHED, w, "(setup_for_execution) closure %p", (void *)t);
     struct cilk_fiber *fh = t->fiber;
@@ -153,10 +154,11 @@ static void setup_for_execution(__cilkrts_worker *w, Closure *t) {
     Closure_set_status(w, t, CLOSURE_RUNNING);
 
     __cilkrts_stack_frame **init = w->l->shadow_stack;
-    atomic_store_explicit(&w->head, init, memory_order_relaxed);
-    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_relaxed);
-    atomic_store_explicit(&w->tail, init, memory_order_release);
-
+    atomic_store_explicit(&w->head, init, memory_order_seq_cst);
+    atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_seq_cst);
+    atomic_store_explicit(&w->tail, init, memory_order_release);    
+    
     /* push the first frame on the current_stack_frame */
     __cilkrts_stack_frame *sf = t->frame;
 
@@ -250,6 +252,7 @@ static Closure *setup_call_parent_resumption(ReadyDeque *deques,
 
 void Cilk_set_return(__cilkrts_worker *const w) {
 
+    Closure *t_orig;
     Closure *t;
 
     cilkrts_alert(RETURN, w, "(Cilk_set_return)");
@@ -257,7 +260,10 @@ void Cilk_set_return(__cilkrts_worker *const w) {
     worker_id self = w->self;
 
     deque_lock_self(deques, self);
-    t = deque_peek_bottom(deques, w, self, self);
+    t_orig = deque_peek_bottom(deques, w, self, self);
+    t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    // printf("returning");
+    CILK_ASSERT(w, t_orig == t);
     Closure_lock(w, self, t);
 
     CILK_ASSERT(w, t->status == CLOSURE_RUNNING);
@@ -271,13 +277,16 @@ void Cilk_set_return(__cilkrts_worker *const w) {
     CILK_ASSERT(w, (t->frame->flags & CILK_FRAME_DETACHED) == 0);
 
     Closure *call_parent = t->call_parent;
-    Closure *t1 = deque_xtract_bottom(deques, w, self, self);
+    Closure *t1_orig = deque_xtract_bottom(deques, w, self, self);
+    Closure *t1 = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    CILK_ASSERT(w, t1_orig == t1);
 
     USE_UNUSED(t1);
     CILK_ASSERT(w, t == t1);
     CILK_ASSERT(w, __cilkrts_stolen(t->frame));
 
     deque_add_bottom(deques, w, call_parent, self, self);
+    update_closure(w, call_parent);
 
     t->frame = NULL;
     Closure_unlock(w, self, t);
@@ -550,12 +559,15 @@ static Closure *return_value(__cilkrts_worker *const w, worker_id self,
  */
 void Cilk_exception_handler(__cilkrts_worker *w, char *exn) {
 
+    Closure *t_orig;
     Closure *t;
     worker_id self = w->self;
     ReadyDeque *deques = w->g->deques;
 
     deque_lock_self(deques, self);
-    t = deque_peek_bottom(deques, w, self, self);
+    t_orig = deque_peek_bottom(deques, w, self, self);
+    t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    CILK_ASSERT(w, t_orig == t);
 
     CILK_ASSERT(w, t);
     Closure_lock(w, self, t);
@@ -571,9 +583,9 @@ void Cilk_exception_handler(__cilkrts_worker *w, char *exn) {
 
     /* These will not change while the deque is locked. */
     __cilkrts_stack_frame **head =
-        atomic_load_explicit(&w->head, memory_order_relaxed);
+        atomic_load_explicit(&w->head, memory_order_seq_cst);
     __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&w->tail, memory_order_relaxed);
+        atomic_load_explicit(&w->tail, memory_order_seq_cst);
     if (head > tail) {
         cilkrts_alert(EXCEPT, w, "(Cilk_exception_handler) this is a steal!");
         if (NULL != exn) {
@@ -720,6 +732,7 @@ static __cilkrts_stack_frame **do_dekker_on(__cilkrts_worker *const w,
     Closure_assert_ownership(w, self, cl);
 
     increment_exception_pointer(w, self, victim_w, cl);
+    increment_exc(victim_w);
     /* Force a global order between the increment of exc above and any
        decrement of tail by the victim.  __cilkrts_leave_frame must also
        have a SEQ_CST fence or atomic.  Additionally the increment of
@@ -732,11 +745,13 @@ static __cilkrts_stack_frame **do_dekker_on(__cilkrts_worker *const w,
      * stack
      */
     __cilkrts_stack_frame **head =
-        atomic_load_explicit(&victim_w->head, memory_order_relaxed);
+        atomic_load_explicit(&victim_w->head, memory_order_seq_cst);
     __cilkrts_stack_frame **tail =
         atomic_load_explicit(&victim_w->tail, memory_order_acquire);
     if (head >= tail) {
+        printf("steal failed %p \n", atomic_load_explicit(&victim_w->exc, memory_order_seq_cst));
         decrement_exception_pointer(w, self, victim_w, cl);
+        decrement_exc(victim_w);
         return NULL;
     }
 
@@ -894,9 +909,17 @@ static Closure *promote_child(__cilkrts_stack_frame **head, ReadyDeque *deques,
 
     atomic_store_explicit(&victim_w->head, head + 1, memory_order_release);
 
+    if (*res == (Closure *)NULL) {
+        printf("here\n");
+        deque_xtract_top(deques, w, self, pn);
+        *res = fetch_and_update_closure(victim_w, (Closure *)NULL);
+        CILK_ASSERT(w, cl == *res);
+    }
 
     /* insert the closure on the victim processor's deque */
     deque_add_bottom(deques, w, spawn_child, self, pn);
+
+    update_closure(victim_w, spawn_child);
 
     /* at this point the child can be freely executed */
     return spawn_child;
@@ -970,14 +993,15 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
                   "(Closure_steal) promote gave cl/res/child = %p/%p/%p",
                   (void *)cl, (void *)res, (void *)child);
 
-    /* detach the parent */
-    if (res == (Closure *)NULL) {
-        // ANGE: in this case, the spawning parent to steal / resume
-        // is simply cl (i.e., there is only one frame in the stacklet),
-        // so we didn't set res in promote_child.
-        res = deque_xtract_top(deques, w, self, victim_id);
-        CILK_ASSERT(w, cl == res);
-    }
+    // /* detach the parent */
+    // if (res == (Closure *)NULL) {
+    //     // ANGE: in this case, the spawning parent to steal / resume
+    //     // is simply cl (i.e., there is only one frame in the stacklet),
+    //     // so we didn't set res in promote_child.
+    //     // res = deque_xtract_top(deques, w, self, victim_id);
+    //     // fetch_and_update_closure(victim_w, (Closure *)NULL);
+    //     CILK_ASSERT(w, cl == res);
+    // }
 
     res->fiber = cilk_fiber_allocate_from_pool(w);
     if (USE_EXTENSION) {
@@ -1003,6 +1027,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
                               __cilkrts_worker *const w,
                               worker_id self, worker_id victim) {
 
+    Closure *cl_orig;
     Closure *cl;
     Closure *res = (Closure *)NULL;
     __cilkrts_worker *victim_w;
@@ -1011,9 +1036,9 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
     // Fast test for an unsuccessful steal attempt using only read operations.
     // This fast test seems to improve parallel performance.
     __cilkrts_stack_frame **head =
-        atomic_load_explicit(&victim_w->head, memory_order_relaxed);
+        atomic_load_explicit(&victim_w->head, memory_order_seq_cst);
     __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&victim_w->tail, memory_order_relaxed);
+        atomic_load_explicit(&victim_w->tail, memory_order_seq_cst);
     if (head >= tail) {
         return NULL;
     }
@@ -1023,7 +1048,9 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
         return NULL;
     }
 
-    cl = deque_peek_top(deques, w, self, victim);
+    cl_orig = deque_peek_top(deques, w, self, victim);
+    cl = unpack_closure(atomic_load_explicit(&victim_w->exc_closure, memory_order_seq_cst));
+    CILK_ASSERT(w, cl_orig == cl);
 
     if (cl) {
         if (Closure_trylock(w, self, cl) == 0) {
@@ -1116,7 +1143,9 @@ void promote_own_deque(__cilkrts_worker *w) {
 
     bool done = false;
     while (!done) {
-        Closure *cl = deque_peek_top(deques, w, self, self);
+        Closure *cl_orig = deque_peek_top(deques, w, self, self);
+        Closure *cl = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+        CILK_ASSERT(w, cl_orig == cl);
         CILK_ASSERT(w, cl);
         CILK_ASSERT(w, cl->status == CLOSURE_RUNNING);
 
@@ -1232,6 +1261,7 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
     // cilkrts_alert(SYNC, w, "(Cilk_sync) frame %p", (void *)frame);
 
     Closure *t;
+    Closure *t_orig;
     int res = SYNC_READY;
 
     //----- EVENT_CILK_SYNC
@@ -1239,7 +1269,9 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
     worker_id self = w->self;
 
     deque_lock_self(deques, self);
-    t = deque_peek_bottom(deques, w, self, self);
+    t_orig = deque_peek_bottom(deques, w, self, self);
+    t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    CILK_ASSERT(w, t_orig == t);
     Closure_lock(w, self, t);
     /* assert we are really at the top of the stack */
     CILK_ASSERT(w, Closure_at_top_of_stack(w, frame));
@@ -1330,6 +1362,9 @@ static void do_what_it_says(ReadyDeque *deques, __cilkrts_worker *w,
             // (rule A in file PROTOCOLS)
             deque_lock_self(deques, self);
             deque_add_bottom(deques, w, t, self, self);
+
+            update_closure(w, t);
+
             deque_unlock_self(deques, self);
 
             /* now execute it */
@@ -1366,7 +1401,9 @@ static void do_what_it_says(ReadyDeque *deques, __cilkrts_worker *w,
                     // Attempt to get a closure from the bottom of our deque.
                     // We should already have the lock on the deque at this
                     // point, as we jumped here from Cilk_exception_handler.
-                    t = deque_xtract_bottom(deques, w, self, self);
+                    deque_xtract_bottom(deques, w, self, self);
+                    t = fetch_and_update_closure(w, (Closure *)NULL);
+
                     deque_unlock_self(deques, self);
                 }
             }
@@ -1468,7 +1505,7 @@ void worker_scheduler(__cilkrts_worker *w) {
             // index-to-worker map.  We'll attempt a few steals using these
             // local copies to minimize memory traffic.
             uint64_t disengaged_sentinel = atomic_load_explicit(
-                &rts->disengaged_sentinel, memory_order_relaxed);
+                &rts->disengaged_sentinel, memory_order_seq_cst);
             uint32_t disengaged = GET_DISENGAGED(disengaged_sentinel);
             uint32_t stealable = nworkers - disengaged;
             __attribute__((unused))
@@ -1612,13 +1649,13 @@ void worker_scheduler(__cilkrts_worker *w) {
 #endif // ENABLE_THIEF_SLEEP
             t = NULL;
         } else if (!is_boss &&
-                   atomic_load_explicit(&rts->done, memory_order_relaxed)) {
+                   atomic_load_explicit(&rts->done, memory_order_seq_cst)) {
             // If it appears the computation is done, busy-wait for a while
             // before exiting the work-stealing loop, in case another cilkified
             // region is started soon.
             unsigned int busy_fail = 0;
             while (busy_fail++ < BUSY_LOOP_SPIN &&
-                   atomic_load_explicit(&rts->done, memory_order_relaxed)) {
+                   atomic_load_explicit(&rts->done, memory_order_seq_cst)) {
                 busy_pause();
             }
             if (thief_should_wait(rts)) {

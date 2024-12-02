@@ -138,7 +138,7 @@ static inline void try_wake_root_worker(global_state *g, uint32_t *old_val,
 #if USE_FUTEX
     if (atomic_compare_exchange_strong_explicit(root_worker_p, old_val, new_val,
                                                 memory_order_release,
-                                                memory_order_relaxed)) {
+                                                memory_order_seq_cst)) {
         long s = futex(root_worker_p, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
         if (s == -1)
             errExit("futex-FUTEX_WAKE");
@@ -254,7 +254,7 @@ static inline void request_more_thieves(global_state *g, uint32_t count) {
         if (atomic_compare_exchange_strong_explicit(
                 &g->disengaged_thieves_futex, &disengaged_thieves_futex,
                 disengaged_thieves_futex + to_wake, memory_order_release,
-                memory_order_relaxed)) {
+                memory_order_seq_cst)) {
             // We successfully updated the futex.  Wake the thief threads
             // waiting on this futex.
             long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE,
@@ -293,10 +293,10 @@ static inline uint32_t thief_disengage_futex(_Atomic uint32_t *futexp) {
         // designed to handle cases where multiple threads waiting on the futex
         // were woken up and where there may be spurious wakeups.
         uint32_t val;
-        while ((val = atomic_load_explicit(futexp, memory_order_relaxed)) > 0) {
+        while ((val = atomic_load_explicit(futexp, memory_order_seq_cst)) > 0) {
             if (atomic_compare_exchange_weak_explicit(futexp, &val, val - 1,
                                                       memory_order_release,
-                                                      memory_order_relaxed)) {
+                                                      memory_order_seq_cst)) {
                 return val;
             }
             busy_loop_pause();
@@ -371,15 +371,15 @@ static inline uint32_t thief_wait(global_state *g) {
 // work stealing.
 static inline bool thief_should_wait(global_state *g) {
     _Atomic uint32_t *futexp = &g->disengaged_thieves_futex;
-    uint32_t val = atomic_load_explicit(futexp, memory_order_relaxed);
+    uint32_t val = atomic_load_explicit(futexp, memory_order_seq_cst);
 #if USE_FUTEX
     while (val > 0) {
         if (atomic_compare_exchange_weak_explicit(futexp, &val, val - 1,
                                                   memory_order_release,
-                                                  memory_order_relaxed))
+                                                  memory_order_seq_cst))
             return false;
         busy_loop_pause();
-        val = atomic_load_explicit(futexp, memory_order_relaxed);
+        val = atomic_load_explicit(futexp, memory_order_seq_cst);
     }
     return true;
 #else
@@ -388,7 +388,7 @@ static inline bool thief_should_wait(global_state *g) {
 
     pthread_mutex_t *lock = &g->disengaged_lock;
     pthread_mutex_lock(lock);
-    val = atomic_load_explicit(futexp, memory_order_relaxed);
+    val = atomic_load_explicit(futexp, memory_order_seq_cst);
     if (val > 0) {
         atomic_store_explicit(futexp, val - 1, memory_order_release);
         pthread_mutex_unlock(lock);

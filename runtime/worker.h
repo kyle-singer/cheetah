@@ -42,7 +42,7 @@ struct __cilkrts_worker {
     // H could be moved elsewhere because it is only touched when stealing.
     _Atomic(struct __cilkrts_stack_frame **) tail;
     _Atomic(double_ptr) exc_closure __attribute__((aligned(64)));
-    // _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
+    _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
     _Atomic(struct __cilkrts_stack_frame **) head __attribute__((aligned(CILK_CACHE_LINE)));
 
     // Limit of the Lazy Task Queue, to detect queue overflow (debug only)

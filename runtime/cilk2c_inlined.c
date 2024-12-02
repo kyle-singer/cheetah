@@ -163,7 +163,7 @@ __cilkrts_detach(__cilkrts_stack_frame *sf) {
 
     sf->flags |= CILK_FRAME_DETACHED;
     struct __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&w->tail, memory_order_relaxed);
+        atomic_load_explicit(&w->tail, memory_order_seq_cst);
     CILK_ASSERT(w, (tail + 1) < w->ltq_limit);
 
     // store parent at *tail, and then increment tail
@@ -276,13 +276,18 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
     CILK_ASSERT(w, sf->flags & CILK_FRAME_DETACHED);
 
     __cilkrts_stack_frame **tail =
-            atomic_load_explicit(&w->tail, memory_order_relaxed);
+            atomic_load_explicit(&w->tail, memory_order_seq_cst);
     --tail;
     /* The store of tail must precede the load of exc in global order.  See
        comment in do_dekker_on. */
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-    double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-    __cilkrts_stack_frame **exc = unpack_exc(exc_closure);
+    __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
+    __cilkrts_stack_frame **exc = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    // printf("w %d    exc_orig %p    exc %p\n", w->self, exc_orig, exc);
+    // CILK_ASSERT_POINTER_EQUAL(w, exc_orig, exc);     
+    // dont include this assertion except when testing because benign races such as exc_orig having been incremented while
+    // new exception pointer has not yet been and exc_orig having been decremented (due to unsuccessful steak) while new exception
+    // pointer has not yet been will still fail this assertion
             
     // __cilkrts_stack_frame **exc =
     //         atomic_load_explicit(&w->exc, memory_order_seq_cst);
@@ -348,13 +353,15 @@ void __cilkrts_pause_frame(__cilkrts_stack_frame *sf, char *exn) {
             w->extension = parent->extension;
         }
         __cilkrts_stack_frame **tail =
-            atomic_load_explicit(&w->tail, memory_order_relaxed);
+            atomic_load_explicit(&w->tail, memory_order_seq_cst);
         --tail;
         /* The store of tail must precede the load of exc in global order.
            See comment in do_dekker_on. */
         atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
+        __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
         __cilkrts_stack_frame **exc =
             unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+        CILK_ASSERT(w, exc_orig == exc);
         /* Currently no other modifications of flags are atomic so this
            one isn't either.  If the thief wins it may run in parallel
            with the clear of DETACHED.  Does it modify flags too? */

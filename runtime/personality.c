@@ -134,7 +134,9 @@ sync_in_personality(__cilkrts_worker *w, __cilkrts_stack_frame *sf,
         exn_r->exn = (char *)ue_header;
 
         deque_lock_self(deques, self);
-        Closure *t = deque_peek_bottom(deques, w, self, self);
+        Closure *t_orig = deque_peek_bottom(deques, w, self, self);
+        Closure *t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+        CILK_ASSERT(w, t_orig == t);
         Closure_lock(w, self, t);
 
         // ensure that we return here after a cilk_sync.

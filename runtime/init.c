@@ -75,8 +75,8 @@ static void workers_init(global_state *g) {
             // back on.
             __cilkrts_init_tls_worker(0, g);
 
-            atomic_store_explicit(&g->dummy_worker.tail, NULL, memory_order_relaxed);
-            atomic_store_explicit(&g->dummy_worker.head, NULL, memory_order_relaxed);
+            atomic_store_explicit(&g->dummy_worker.tail, NULL, memory_order_seq_cst);
+            atomic_store_explicit(&g->dummy_worker.head, NULL, memory_order_seq_cst);
         } else {
             g->workers[i] = &g->dummy_worker;
         }
@@ -116,9 +116,10 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
         w->l->shadow_stack + g->options.deqdepth;
     g->workers[i] = w;
     __cilkrts_stack_frame **init = w->l->shadow_stack + 1;
-    atomic_store_explicit(&w->tail, init, memory_order_relaxed);
-    atomic_store_explicit(&w->head, init, memory_order_relaxed);
-    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_relaxed);
+    atomic_store_explicit(&w->tail, init, memory_order_seq_cst);
+    atomic_store_explicit(&w->head, init, memory_order_seq_cst);
+    atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_seq_cst);
     if (i != 0) {
         w->hyper_table = NULL;
     }
@@ -455,7 +456,7 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
 
     /* reset_disengaged_var(g); */
     if (__builtin_expect(
-            atomic_load_explicit(&g->cilkified, memory_order_relaxed), false)) {
+            atomic_load_explicit(&g->cilkified, memory_order_seq_cst), false)) {
         cilkrts_bug(
             NULL,
             "ERROR: OpenCilk runtime already executing a Cilk computation.\n");
@@ -545,6 +546,9 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     deque_lock_self(deques, self);
     deques[self].bottom = (Closure *)NULL;
     deques[self].top = (Closure *)NULL;
+
+    update_closure(w, (Closure *)NULL);
+
     WHEN_CILK_DEBUG(g->root_closure->owner_ready_deque = NO_WORKER);
     deque_unlock_self(deques, self);
 
@@ -560,7 +564,7 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
         // We finished the computation on the boss thread.  No need to jump to
         // the runtime in this case; just return normally.
         local_state *l = w->l;
-        atomic_store_explicit(&g->cilkified, 0, memory_order_relaxed);
+        atomic_store_explicit(&g->cilkified, 0, memory_order_seq_cst);
         l->state = WORKER_IDLE;
         __cilkrts_need_to_cilkify = true;
 

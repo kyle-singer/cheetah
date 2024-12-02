@@ -11,6 +11,121 @@
 
 #include "closure-type.h"
 
+static inline __attribute__((always_inline)) double_ptr 
+pack_pointers(__cilkrts_stack_frame ** ptr1, Closure * ptr2) {
+    return ((double_ptr)ptr1 << 64) | (uintptr_t)ptr2;
+}
+
+static inline __attribute__((always_inline)) __cilkrts_stack_frame ** 
+unpack_exc(double_ptr packed) {
+    // Store exception pointer in high bits
+    return (__cilkrts_stack_frame **)(packed >> 64);
+}
+
+static inline __attribute__((always_inline)) Closure * 
+unpack_closure(double_ptr packed) {
+    // Store closure pointer in low bits
+    return (Closure *)packed;
+}
+
+static inline __attribute((always_inline)) void
+decrement_exc(__cilkrts_worker *w) {
+    double_ptr old_value, new_value;
+     __cilkrts_stack_frame **exc;
+    Closure * closure;
+
+    // Loop to retry if compare-and-swap fails
+    do {
+        old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        exc = unpack_exc(old_value);
+        closure = unpack_closure(old_value);
+
+        // Prepare the new value
+        new_value = pack_pointers(exc - 1, closure);
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value));
+}
+
+static inline __attribute((always_inline)) void
+increment_exc(__cilkrts_worker *w) {
+    double_ptr old_value, new_value;
+     __cilkrts_stack_frame **exc;
+    Closure * closure;
+
+    // Loop to retry if compare-and-swap fails
+    do {
+        old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        exc = unpack_exc(old_value);
+        closure = unpack_closure(old_value);
+
+        // Prepare the new value
+        new_value = pack_pointers(exc + 1, closure);
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value));
+}
+
+static inline __attribute((always_inline)) void
+update_exc(__cilkrts_worker *w, __cilkrts_stack_frame ** exc) {
+    double_ptr old_value, new_value;
+    Closure * closure;
+
+    // Loop to retry if compare-and-swap fails
+    do {
+        old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        closure = unpack_closure(old_value);
+
+        // Prepare the new value
+        new_value = pack_pointers(exc, closure);
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value));
+}
+
+static inline __attribute((always_inline)) void
+update_closure(__cilkrts_worker *w, Closure * closure) {
+    double_ptr old_value, new_value;
+    __cilkrts_stack_frame **exc;
+
+    // Loop to retry if compare-and-swap fails
+    do {
+        old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        exc = unpack_exc(old_value);
+
+        // Prepare the new value
+        new_value = pack_pointers(exc, closure);
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value));
+}
+
+static inline __attribute((always_inline)) Closure *
+fetch_and_update_closure(__cilkrts_worker *w, Closure * new_closure) {
+    double_ptr old_value, new_value;
+    __cilkrts_stack_frame **exc;
+    Closure *closure;
+
+    // Loop to retry if compare-and-swap fails
+    do {
+        old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        exc = unpack_exc(old_value);
+        closure = unpack_closure(old_value);
+
+        // Prepare the new value
+        new_value = pack_pointers(exc, new_closure);
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value));
+
+    return closure;
+}
+
 static inline const char *Closure_status_to_str(enum ClosureStatus status) {
     switch (status) {
     case CLOSURE_RUNNING:
@@ -35,14 +150,14 @@ static inline void Closure_assert_ownership(__cilkrts_worker *const w,
                                             worker_id self,
                                             Closure *t) {
     CILK_ASSERT(
-        w, atomic_load_explicit(&t->mutex_owner, memory_order_relaxed) == self);
+        w, atomic_load_explicit(&t->mutex_owner, memory_order_seq_cst) == self);
 }
 
 static inline void Closure_assert_alienation(__cilkrts_worker *const w,
                                              worker_id self,
                                              Closure *t) {
     CILK_ASSERT(
-        w, atomic_load_explicit(&t->mutex_owner, memory_order_relaxed) != self);
+        w, atomic_load_explicit(&t->mutex_owner, memory_order_seq_cst) != self);
 }
 
 static inline void Closure_checkmagic(__cilkrts_worker *const w, Closure *t) {
@@ -88,11 +203,11 @@ static inline void Closure_set_status(__cilkrts_worker *const w, Closure *t,
 static inline int Closure_trylock(__cilkrts_worker *const w, worker_id self, Closure *t) {
     Closure_checkmagic(w, t);
     worker_id current_owner =
-        atomic_load_explicit(&t->mutex_owner, memory_order_relaxed);
+        atomic_load_explicit(&t->mutex_owner, memory_order_seq_cst);
     if ((current_owner == NO_WORKER) &&
         atomic_compare_exchange_weak_explicit(&t->mutex_owner, &current_owner,
                                               self, memory_order_acq_rel,
-                                              memory_order_relaxed))
+                                              memory_order_seq_cst))
         return 1;
 
     return 0;
@@ -102,11 +217,11 @@ static inline void Closure_lock(__cilkrts_worker *const w, worker_id self, Closu
     Closure_checkmagic(w, t);
     while (true) {
         worker_id current_owner =
-            atomic_load_explicit(&t->mutex_owner, memory_order_relaxed);
+            atomic_load_explicit(&t->mutex_owner, memory_order_seq_cst);
         if ((current_owner == NO_WORKER) &&
             atomic_compare_exchange_weak_explicit(
                 &t->mutex_owner, &current_owner, self, memory_order_acq_rel,
-                memory_order_relaxed))
+                memory_order_seq_cst))
             break;
         busy_loop_pause();
     }
@@ -128,9 +243,9 @@ static inline void Closure_unlock(__cilkrts_worker *const w, worker_id self, Clo
 static inline int Closure_at_top_of_stack(__cilkrts_worker *const w,
                                           __cilkrts_stack_frame *const frame) {
     __cilkrts_stack_frame **head =
-        atomic_load_explicit(&w->head, memory_order_relaxed);
+        atomic_load_explicit(&w->head, memory_order_seq_cst);
     __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&w->tail, memory_order_relaxed);
+        atomic_load_explicit(&w->tail, memory_order_seq_cst);
     return (head == tail && __cilkrts_stolen(frame));
 }
 
@@ -140,7 +255,7 @@ static inline int Closure_has_children(Closure *cl) {
 }
 
 static inline void Closure_init(Closure *t, __cilkrts_stack_frame *frame) {
-    atomic_store_explicit(&t->mutex_owner, NO_WORKER, memory_order_relaxed);
+    atomic_store_explicit(&t->mutex_owner, NO_WORKER, memory_order_seq_cst);
     t->owner_ready_deque = NO_WORKER;
     t->status = CLOSURE_PRE_INVALID;
     t->has_cilk_callee = false;
@@ -345,6 +460,7 @@ static inline void Closure_suspend_victim(struct ReadyDeque *deques,
                                           worker_id thief_id, worker_id victim_id,
                                           Closure *cl) {
 
+    Closure *cl1_orig;
     Closure *cl1;
 
     Closure_checkmagic(thief, cl);
@@ -356,8 +472,12 @@ static inline void Closure_suspend_victim(struct ReadyDeque *deques,
 
     Closure_change_status(thief, cl, CLOSURE_RUNNING, CLOSURE_SUSPENDED);
 
-    cl1 = deque_xtract_bottom(deques, thief, thief_id, victim_id);
+    cl1_orig = deque_xtract_bottom(deques, thief, thief_id, victim_id);
+    cl1 = fetch_and_update_closure(victim, (Closure *)NULL);
+
+    CILK_ASSERT(thief, cl1_orig == cl1);
     CILK_ASSERT(thief, cl == cl1);
+    CILK_ASSERT(thief, cl == cl1_orig);
     USE_UNUSED(cl1);
 }
 
@@ -366,6 +486,7 @@ static inline void Closure_suspend(struct ReadyDeque *deques,
                                    Closure *cl) {
 
     Closure *cl1;
+    Closure* cl1_orig;
 
     cilkrts_alert(SCHED, w, "Closure_suspend %p", (void *)cl);
 
@@ -380,9 +501,13 @@ static inline void Closure_suspend(struct ReadyDeque *deques,
 
     Closure_change_status(w, cl, CLOSURE_RUNNING, CLOSURE_SUSPENDED);
 
-    cl1 = deque_xtract_bottom(deques, w, self, self);
+    cl1_orig = deque_xtract_bottom(deques, w, self, self);
+    cl1 = fetch_and_update_closure(w, (Closure *)NULL);
 
+    CILK_ASSERT(w, cl1_orig == cl1);
     CILK_ASSERT(w, cl == cl1);
+
+    CILK_ASSERT(w, cl == cl1_orig);
     USE_UNUSED(cl1);
 }
 
@@ -428,23 +553,6 @@ static inline void Closure_destroy_global(struct global_state *const g,
     t->status = CLOSURE_POST_INVALID;
     Closure_clean(NULL, t);
     cilk_internal_free_global(g, t, sizeof(*t), IM_CLOSURE);
-}
-
-static inline __attribute__((always_inline)) double_ptr 
-pack_pointers(__cilkrts_stack_frame ** ptr1, Closure * ptr2) {
-    return ((double_ptr)ptr1 << 64) | (uintptr_t)ptr2;
-}
-
-static inline __attribute__((always_inline)) __cilkrts_stack_frame ** 
-unpack_exc(double_ptr packed) {
-    // Store exception pointer in high bits
-    return (__cilkrts_stack_frame **)(packed >> 64);
-}
-
-static inline __attribute__((always_inline)) Closure * 
-unpack_closure(double_ptr packed) {
-    // Store closure pointer in low bits
-    return (Closure *)packed;
 }
 
 #endif

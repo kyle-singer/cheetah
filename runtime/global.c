@@ -30,6 +30,7 @@ __cilkrts_worker default_worker = {.self = 0,
                                    .extension = NULL,
                                    .ext_stack = NULL,
                                    .tail = NULL,
+                                   .exc = NULL,
                                    .exc_closure = 0,
                                    .head = NULL,
                                    .ltq_limit = NULL};
@@ -56,8 +57,8 @@ static global_state *global_state_allocate() {
     cilk_mutex_init(&g->index_lock);
     cilk_mutex_init(&g->print_lock);
 
-    atomic_store_explicit(&g->start_root_worker, 0, memory_order_relaxed);
-    atomic_store_explicit(&g->cilkified_futex, 0, memory_order_relaxed);
+    atomic_store_explicit(&g->start_root_worker, 0, memory_order_seq_cst);
+    atomic_store_explicit(&g->cilkified_futex, 0, memory_order_seq_cst);
 
     // TODO: Convert to cilk_* equivalents
     pthread_mutex_init(&g->cilkified_lock, NULL);
@@ -128,6 +129,7 @@ static void parse_rts_environment(global_state *g) {
         if (0 == err) {
             // Get the number of available cores (copied from os-unix.c)
             available_cores = CPU_COUNT(&process_mask);
+            printf("available_cores %d\n", available_cores);
         }
 #endif
         if (proc_override > 0)
@@ -168,9 +170,9 @@ global_state *global_state_init(int argc, char *argv[]) {
 
     g->workers_started = false;
     g->root_closure_initialized = false;
-    atomic_store_explicit(&g->done, 0, memory_order_relaxed);
-    atomic_store_explicit(&g->cilkified, 0, memory_order_relaxed);
-    atomic_store_explicit(&g->disengaged_sentinel, 0, memory_order_relaxed);
+    atomic_store_explicit(&g->done, 0, memory_order_seq_cst);
+    atomic_store_explicit(&g->cilkified, 0, memory_order_seq_cst);
+    atomic_store_explicit(&g->disengaged_sentinel, 0, memory_order_seq_cst);
 
     g->terminate = false;
     g->exiting_worker = 0;
