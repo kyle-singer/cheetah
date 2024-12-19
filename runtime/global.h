@@ -55,6 +55,7 @@ struct global_state {
     struct ReadyDeque *deques;
     pthread_t *threads;
     struct Closure *root_closure;
+    struct cilk_fiber *root_fiber;
 
     struct cilk_fiber_pool fiber_pool __attribute__((aligned(CILK_CACHE_LINE)));
     struct global_im_pool im_pool __attribute__((aligned(CILK_CACHE_LINE)));

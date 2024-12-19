@@ -102,11 +102,11 @@ static inline Closure *deque_xtract_top(ReadyDeque *deques,
     Closure *cl;
 
     /* ANGE: make sure w has the lock on worker pn's deque */
-    deque_assert_ownership(deques, w, self, pn);
+    // deque_assert_ownership(deques, w, self, pn);
 
     cl = deques[pn].top;
     if (cl) {
-        CILK_ASSERT(w, cl->owner_ready_deque == pn);
+        // CILK_ASSERT(w, cl->owner_ready_deque == pn);
         deques[pn].top = cl->next_ready;
         /* ANGE: if there is only one entry in the deque ... */
         if (cl == deques[pn].bottom) {
@@ -131,7 +131,7 @@ static inline Closure *deque_peek_top(ReadyDeque *deques,
     Closure *cl;
 
     /* ANGE: make sure w has the lock on worker pn's deque */
-    deque_assert_ownership(deques, w, self, pn);
+    // deque_assert_ownership(deques, w, self, pn);
 
     /* ANGE: return the top but does not unlink it from the rest */
     cl = deques[pn].top;
@@ -157,11 +157,11 @@ static inline Closure *deque_xtract_bottom(ReadyDeque *deques,
     Closure *cl;
 
     /* ANGE: make sure w has the lock on worker pn's deque */
-    deque_assert_ownership(deques, w, self, pn);
+    // deque_assert_ownership(deques, w, self, pn);
 
     cl = deques[pn].bottom;
     if (cl) {
-        CILK_ASSERT(w, cl->owner_ready_deque == pn);
+        // CILK_ASSERT(w, cl->owner_ready_deque == pn);
         deques[pn].bottom = cl->prev_ready;
         if (cl == deques[pn].top) {
             CILK_ASSERT(w, cl->prev_ready == (Closure *)NULL);
@@ -185,11 +185,11 @@ deque_peek_bottom(ReadyDeque *deques, __cilkrts_worker *const w, worker_id self,
     Closure *cl;
 
     /* ANGE: make sure w has the lock on worker pn's deque */
-    deque_assert_ownership(deques, w, self, pn);
+    // deque_assert_ownership(deques, w, self, pn);
 
     cl = deques[pn].bottom;
     if (cl) {
-        CILK_ASSERT(w, cl->owner_ready_deque == pn);
+        // CILK_ASSERT(w, cl->owner_ready_deque == pn);
     } else {
         CILK_ASSERT(w, deques[pn].top == (Closure *)NULL);
     }
@@ -205,8 +205,8 @@ static inline void deque_add_bottom(ReadyDeque *deques,
                                     __cilkrts_worker *const w, Closure *cl,
                                     worker_id self, worker_id pn) {
 
-    deque_assert_ownership(deques, w, self, pn);
-    CILK_ASSERT(w, cl->owner_ready_deque == NO_WORKER);
+    // deque_assert_ownership(deques, w, self, pn);
+    // CILK_ASSERT(w, cl->owner_ready_deque == NO_WORKER);
 
     cl->prev_ready = deques[pn].bottom;
     cl->next_ready = (Closure *)NULL;

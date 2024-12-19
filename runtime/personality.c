@@ -133,23 +133,23 @@ sync_in_personality(__cilkrts_worker *w, __cilkrts_stack_frame *sf,
         struct closure_exception *exn_r = get_exception_reducer(w);
         exn_r->exn = (char *)ue_header;
 
-        deque_lock_self(deques, self);
-        Closure *t_orig = deque_peek_bottom(deques, w, self, self);
+        // deque_lock_self(deques, self);
+        // Closure *t_orig = deque_peek_bottom(deques, w, self, self);
         Closure *t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
-        CILK_ASSERT(w, t_orig == t);
-        Closure_lock(w, self, t);
+        // CILK_ASSERT(w, t_orig == t);
+        // Closure_lock(w, self, t);
 
         // ensure that we return here after a cilk_sync.
         exn_r->parent_rsp = t->orig_rsp;
         t->orig_rsp = (char *)SP(sf);
 
-        Closure_unlock(w, self, t);
-        deque_unlock_self(deques, self);
+        // Closure_unlock(w, self, t);
+        // deque_unlock_self(deques, self);
 
         // save the current fiber for further stack unwinding.
         if (exn_r->throwing_fiber == NULL) {
-            exn_r->throwing_fiber = t->fiber;
-            t->fiber = NULL;
+            exn_r->throwing_fiber = w->fiber;
+            w->fiber = NULL;
         }
 
         // For now, use this flag to indicate that we are setjmping from the

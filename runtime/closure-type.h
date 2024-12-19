@@ -9,9 +9,18 @@
 // Forward declaration
 typedef struct Closure Closure;
 
+// enum ClosureStatus {
+//     /* Closure.status == 0 is invalid */
+//     CLOSURE_RUNNING = 42,
+//     CLOSURE_SUSPENDED,
+//     CLOSURE_RETURNING,
+//     CLOSURE_READY,
+//     CLOSURE_PRE_INVALID, /* before first real use */
+//     CLOSURE_POST_INVALID /* after destruction */
+// };
+
 enum ClosureStatus {
-    /* Closure.status == 0 is invalid */
-    CLOSURE_RUNNING = 42,
+    CLOSURE_RUNNING = 0,
     CLOSURE_SUSPENDED,
     CLOSURE_RETURNING,
     CLOSURE_READY,
@@ -27,10 +36,11 @@ enum ClosureStatus {
 struct Closure {
     __cilkrts_stack_frame *frame; /* rest of the closure */
 
-    struct cilk_fiber *fiber;
-    struct cilk_fiber *fiber_child;
+    _Atomic(Closure *) stack_top;
+    Closure * alias;
 
-    struct cilk_fiber *ext_fiber;
+    struct cilk_fiber *left_most_fiber;
+    struct cilk_fiber *fiber_child;
     struct cilk_fiber *ext_fiber_child;
 
     worker_id owner_ready_deque; /* debug only */
@@ -38,7 +48,7 @@ struct Closure {
     enum ClosureStatus status : 8; /* doubles as magic number */
     bool has_cilk_callee;
     bool exception_pending;
-    unsigned int join_counter; /* number of outstanding spawned children */
+    _Atomic(unsigned int) join_counter; /* number of outstanding spawned children */
     char *orig_rsp; /* the rsp one should use when sync successfully */
 
     Closure *callee;

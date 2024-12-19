@@ -20,6 +20,8 @@ struct __cilkrts_worker {
     const worker_id self;
 
     // 4 byte hole on 64 bit systems
+    struct cilk_fiber *fiber;
+    struct cilk_fiber *ext_fiber;
 
     // Current hyperobject table
     struct local_hyper_table *hyper_table;
@@ -29,6 +31,10 @@ struct __cilkrts_worker {
 
     // Additional per-worker state hidden from the client.
     struct local_state *const l;
+
+    // should only be modified by the worker itself during initialization or after doing a successful steal to initialize a new stack
+    struct Closure *closure_stack_head;
+    _Atomic(struct Closure*) closure_stack_tail; // use atomic fetch add
 
     // Cache line boundary on 64 bit systems with 64 byte cache lines
 

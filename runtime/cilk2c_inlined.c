@@ -151,6 +151,7 @@ __cilk_prepare_spawn(__cilkrts_stack_frame *sf) {
 __attribute__((always_inline)) void
 __cilkrts_detach(__cilkrts_stack_frame *sf) {
     __cilkrts_worker *w = get_worker_from_stack(sf);
+    // printf("detaching frame   %p    from parent    %p\n", sf, sf->call_parent);
     cilkrts_alert(CFRAME, w, "__cilkrts_detach %p", (void *)sf);
 
     CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
@@ -194,6 +195,7 @@ __attribute__((always_inline)) void __cilk_sync(__cilkrts_stack_frame *sf) {
 
 __attribute__((always_inline)) void
 __cilk_sync_nothrow(__cilkrts_stack_frame *sf) {
+    // printf("attempt sync    sf  %p\n", sf);
     if (sf->flags & CILK_FRAME_UNSYNCHED || USE_EXTENSION) {
         if (sf->flags & CILK_FRAME_UNSYNCHED) {
             if (__builtin_setjmp(sf->ctx) == 0) {
@@ -223,6 +225,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
     // Pop this frame off the cactus stack.  This logic used to be in
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
+    // printf("leaving frame   curr stack frame    %p      worker  %d      was   %p\n", parent, w->self, sf->fh->current_stack_frame);
     sf->fh->current_stack_frame = parent;
     sf->call_parent = NULL;
 
@@ -249,6 +252,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
                       "__cilkrts_leave_frame parent is call_parent!");
         // leaving a full frame; need to get the full frame of its call
         // parent back onto the deque
+        printf("w   %d      leaving frame\n", w->self);
         Cilk_set_return(w);
         CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
     }
@@ -257,6 +261,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
 __attribute__((always_inline)) void
 __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
     __cilkrts_worker *w = get_worker_from_stack(sf);
+    // printf("leaving frame helper    worker   %d   sf    %p\n", w->self, sf);
     cilkrts_alert(CFRAME, w, "__cilkrts_leave_frame_helper %p", (void *)sf);
 
     CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
@@ -266,6 +271,7 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
     __cilkrts_stack_frame *parent = sf->call_parent;
+    // printf("leaving frame helper  curr stack frame    %p      worker  %d    was     %p\n", parent, w->self, sf->fh->current_stack_frame);
     sf->fh->current_stack_frame = parent;
     if (USE_EXTENSION) {
         __cilkrts_extend_return_from_spawn(w, &w->extension);
@@ -281,8 +287,8 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
     /* The store of tail must precede the load of exc in global order.  See
        comment in do_dekker_on. */
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-    __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
-    __cilkrts_stack_frame **exc = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    // __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
+    __cilkrts_stack_frame **head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
     // printf("w %d    exc_orig %p    exc %p\n", w->self, exc_orig, exc);
     // CILK_ASSERT_POINTER_EQUAL(w, exc_orig, exc);     
     // dont include this assertion except when testing because benign races such as exc_orig having been incremented while
@@ -295,8 +301,8 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
        either.  If the thief wins it may run in parallel with the clear of
        DETACHED.  Does it modify flags too? */
     sf->flags &= ~CILK_FRAME_DETACHED;
-    if (__builtin_expect(exc > tail, false)) {
-        Cilk_exception_handler(w, NULL);
+    if (__builtin_expect(head >= tail, false)) {
+        Cilk_exception_handler(w, NULL, head, tail);
         // If Cilk_exception_handler returns this thread won the race and can
         // return to the parent function.
     }
@@ -329,6 +335,7 @@ void __cilkrts_enter_landingpad(__cilkrts_stack_frame *sf, int32_t sel) {
 
 __attribute__((always_inline))
 void __cilkrts_pause_frame(__cilkrts_stack_frame *sf, char *exn) {
+    printf("pausing frame sf    %p\n", sf);
     if (0 == __builtin_setjmp(sf->ctx))
         __cilkrts_cleanup_fiber(sf, 1);
 
@@ -358,18 +365,19 @@ void __cilkrts_pause_frame(__cilkrts_stack_frame *sf, char *exn) {
         /* The store of tail must precede the load of exc in global order.
            See comment in do_dekker_on. */
         atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-        __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
-        __cilkrts_stack_frame **exc =
+        // __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
+        __cilkrts_stack_frame **head =
             unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
-        CILK_ASSERT(w, exc_orig == exc);
+        // CILK_ASSERT(w, exc_orig == exc);
         /* Currently no other modifications of flags are atomic so this
            one isn't either.  If the thief wins it may run in parallel
            with the clear of DETACHED.  Does it modify flags too? */
         sf->flags &= ~CILK_FRAME_DETACHED;
-        if (__builtin_expect(exc > tail, false)) {
-            Cilk_exception_handler(w, exn);
-            // If Cilk_exception_handler returns this thread won
-            // the race and can return to the parent function.
+        if (__builtin_expect(head >= tail, false)) {
+            Cilk_exception_handler(w, exn, head, tail);
+            // If Cilk_exception_handler returns this thread won the race and can
+            // return to the parent function.
+            // otherwise itll jump to runtime
         }
     }
 }

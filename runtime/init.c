@@ -117,9 +117,16 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
     g->workers[i] = w;
     __cilkrts_stack_frame **init = w->l->shadow_stack + 1;
     atomic_store_explicit(&w->tail, init, memory_order_seq_cst);
-    atomic_store_explicit(&w->head, init, memory_order_seq_cst);
-    atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
+    // atomic_store_explicit(&w->head, init, memory_order_seq_cst);
+    // atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
     atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_seq_cst);
+    w->closure_stack_head = (struct Closure *)calloc(g->options.deqdepth, sizeof(struct Closure));
+    atomic_store_explicit(&w->closure_stack_tail, w->closure_stack_head, memory_order_seq_cst);
+    printf("allocating init stack   %p\n", w->closure_stack_head);
+    for (unsigned int i = 0; i < g->options.deqdepth; i++) {
+        w->closure_stack_head[i].stack_top = w->closure_stack_head;
+        // Initialize other fields as needed
+    }
     if (i != 0) {
         w->hyper_table = NULL;
     }
@@ -277,10 +284,13 @@ global_state *__cilkrts_startup(int argc, char *argv[]) {
     // Create the root closure and a fiber to go with it.  Use worker 0 to
     // allocate the closure and fiber.
     __cilkrts_worker *w0 = g->workers[0];
-    Closure *t = Closure_create(w0, NULL);
+    printf("root\n");
+    Closure *t = Closure_create(w0, w0, w0->closure_stack_head, NULL);
+    atomic_store_explicit(&w0->closure_stack_tail, w0->closure_stack_head + 1, memory_order_seq_cst);
     struct cilk_fiber *fiber = cilk_fiber_allocate(w0, g->options.stacksize);
-    t->fiber = fiber;
+    w0->fiber = fiber;
     g->root_closure = t;
+    g->root_fiber = fiber;
 
     return g;
 }
@@ -402,10 +412,10 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
         cilk_fiber_pool_per_worker_init(w0);
         w0->l->rand_next = 162347;
 #endif
-        if (USE_EXTENSION) {
-            g->root_closure->ext_fiber =
-                cilk_fiber_allocate(w0, g->options.stacksize);
-        }
+        // if (USE_EXTENSION) {
+        //     g->root_closure->ext_fiber =
+        //         cilk_fiber_allocate(w0, g->options.stacksize);
+        // }
         boss_initialized = true;
     }
 
@@ -420,13 +430,13 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
     w = g->workers[g->exiting_worker];
 #endif
     Closure *root_closure = g->root_closure;
-    if (USE_EXTENSION) {
-        // Initialize sf->extension, to appease the later call to
-        // setup_for_execution.
-        sf->extension = w->extension;
-        // Initialize worker->ext_stack.
-        w->ext_stack = sysdep_get_stack_start(root_closure->ext_fiber);
-    }
+    // if (USE_EXTENSION) {
+    //     // Initialize sf->extension, to appease the later call to
+    //     // setup_for_execution.
+    //     sf->extension = w->extension;
+    //     // Initialize worker->ext_stack.
+    //     w->ext_stack = sysdep_get_stack_start(root_closure->ext_fiber);
+    // }
     CILK_START_TIMING(w, INTERVAL_CILKIFY_ENTER);
 
     // Mark the root closure as not initialized
@@ -438,7 +448,7 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
     // Setup the stack pointer to point at the root closure's fiber.
     g->orig_rsp = SP(sf);
     void *new_rsp =
-        (void *)sysdep_reset_stack_for_resume(root_closure->fiber, sf);
+        (void *)sysdep_reset_stack_for_resume(w->fiber, sf);
     USE_UNUSED(new_rsp);
     CILK_ASSERT_G(SP(sf) == new_rsp);
 
@@ -543,14 +553,22 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     // Cilkified region to start with an empty deque.  We go ahead and grab the
     // deque lock to make sure no other worker has a lingering pointer to the
     // closure.
-    deque_lock_self(deques, self);
+    // deque_lock_self(deques, self);
     deques[self].bottom = (Closure *)NULL;
     deques[self].top = (Closure *)NULL;
 
+    // STODO i think should loop because init
+    // __cilkrts_stack_frame **head =
+    //     atomic_load_explicit(&w->head, memory_order_seq_cst);
+    __cilkrts_stack_frame **head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    __cilkrts_stack_frame **tail =
+        atomic_load_explicit(&w->tail, memory_order_seq_cst);
+    CILK_ASSERT(w, head == tail);
+    printf("exit root worker    %d\n", w->self);
     update_closure(w, (Closure *)NULL);
 
     WHEN_CILK_DEBUG(g->root_closure->owner_ready_deque = NO_WORKER);
-    deque_unlock_self(deques, self);
+    // deque_unlock_self(deques, self);
 
     // Clear the flags in sf.  This routine runs before leave_frame in a Cilk
     // function, but leave_frame is executed conditionally in Cilk functions
@@ -622,7 +640,7 @@ static void global_state_deinit(global_state *g) {
 static void deques_deinit(global_state *g) {
     cilkrts_alert(BOOT, NULL, "(deques_deinit) Clean up deques");
     for (unsigned int i = 0; i < g->options.nproc; i++) {
-        CILK_ASSERT_G(g->deques[i].mutex_owner == NO_WORKER);
+        // CILK_ASSERT_G(g->deques[i].mutex_owner == NO_WORKER);
     }
 }
 
@@ -674,6 +692,9 @@ static void workers_deinit(global_state *g) {
         cilk_internal_malloc_per_worker_destroy(w); // internal malloc last
         free(w->l->shadow_stack);
         w->l->shadow_stack = NULL;
+        printf("freeing     %p\n", w->closure_stack_head);
+        free(w->closure_stack_head);
+        w->closure_stack_head = NULL;
         *(struct local_state **)(&w->l) = NULL;
         if (i != 0)
             free(w);
@@ -692,9 +713,9 @@ CHEETAH_INTERNAL void __cilkrts_shutdown(global_state *g) {
         cilkrts_callbacks.exit[--i]();
 
     // Deallocate the root closure and its fiber
-    cilk_fiber_deallocate_global(g, g->root_closure->fiber);
-    if (USE_EXTENSION)
-        cilk_fiber_deallocate_global(g, g->root_closure->ext_fiber);
+    cilk_fiber_deallocate_global(g, g->root_fiber);
+    // if (USE_EXTENSION)
+    //     cilk_fiber_deallocate_global(g, g->root_closure->ext_fiber);
     Closure_destroy_global(g, g->root_closure);
 
     // Cleanup the global state

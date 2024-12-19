@@ -204,7 +204,8 @@ void internal_malloc_global_check(global_state *g) {
 }
 
 static void assert_global_pool(struct global_im_pool *pool) {
-    CILK_ASSERT_G(pool->mem_list_index < pool->mem_list_size);
+    // -1 is used as a sentinel value for mem_list_index. This value doesn't change if internal malloc isnt used
+    CILK_ASSERT_G(pool->mem_list_index == (unsigned int)(-1) || pool->mem_list_index < pool->mem_list_size);
     if (pool->wasted > 0)
         CILK_ASSERT_G(pool->wasted < pool->allocated);
 }
@@ -325,6 +326,7 @@ static void extend_global_pool(__cilkrts_worker *w) {
     im_pool->mem_list_index++;
 
     if (im_pool->mem_list_index >= im_pool->mem_list_size) {
+        printf("extending\n");
         CILK_ASSERT(w, im_pool->mem_list_size > 0);
         size_t new_list_size = 2 * im_pool->mem_list_size;
         im_pool->mem_list = realloc(im_pool->mem_list,
