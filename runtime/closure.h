@@ -160,20 +160,6 @@ update_exc_closure_abort(__cilkrts_worker *w, __cilkrts_stack_frame **old_exc, C
     double_ptr old_value = pack_pointers(old_exc, old_closure);
     double_ptr new_value = pack_pointers(new_exc, new_closure);
     return atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value);
-
-    // __cilkrts_stack_frame **exc;
-
-    // // Loop to retry if compare-and-swap fails
-    // do {
-    //     old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-    //     exc = unpack_exc(old_value);
-
-    //     // Prepare the new value
-    //     new_value = pack_pointers(exc, closure);
-
-    //     // Attempt to update atomically
-    //     // atomic_compare_exchange_strong returns true if the update was successful
-    // } while (!atomic_compare_exchange_strong(&w->exc_closure, &old_value, new_value));
 }
 
 static inline __attribute((always_inline)) Closure *
@@ -208,23 +194,15 @@ fetch_and_update_closure_abort(__cilkrts_worker *w, Closure * new_closure, Closu
     double_ptr new_value = pack_pointers(exc, new_closure);
 
     return atomic_compare_exchange_strong(&w->exc_closure, fetch, new_value);
-    
-    // Closure *closure;
+}
 
-    // // Loop to retry if compare-and-swap fails
-    // do {
-    //     old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-    //     exc = unpack_exc(old_value);
-    //     closure = unpack_closure(old_value);
+static inline bool Closure_is_removed(__cilkrts_worker *const w, worker_id self, uintptr_t right_sib_removed) {
+    return (right_sib_removed & 1ULL) != 0;
+}
 
-    //     // Prepare the new value
-    //     new_value = 
-
-    //     // Attempt to update atomically
-    //     // atomic_compare_exchange_strong returns true if the update was successful
-    // } while (!at);
-
-    // return closure;
+static inline Closure *Closure_get_right_sib(Closure *closure) {
+    uintptr_t right_sib_removed = atomic_load_explicit(&closure->right_sib_removed, memory_order_seq_cst);
+    return (Closure *)(right_sib_removed & ~1ULL);
 }
 
 static inline __attribute((always_inline)) bool
@@ -249,6 +227,8 @@ static inline const char *Closure_status_to_str(enum ClosureStatus status) {
         return "pre-invalid";
     case CLOSURE_POST_INVALID:
         return "post-invalid";
+    case CLOSURE_SYNC:
+        return "sync";
     default:
         return "unknown";
     }
@@ -385,7 +365,7 @@ static inline void Closure_init(Closure *t, __cilkrts_stack_frame *frame) {
     t->spawn_parent = NULL;
 
     t->left_sib = NULL;
-    t->right_sib = NULL;
+    // t->right_sib = NULL;
     t->right_most_child = NULL;
 
     t->next_ready = NULL;
@@ -441,37 +421,49 @@ static inline void Closure_set_frame(__cilkrts_worker *w,
     cl->frame = sf;
 }
 
-// double linking left and right; the right is always the new child
-// Note that we must have the lock on the parent when invoking this function
-static inline void double_link_children(__cilkrts_worker *const w,
-                                        Closure *left, Closure *right) {
 
-    if (left) {
-        CILK_ASSERT(w, left->right_sib == (Closure *)NULL);
-        left->right_sib = right;
+// // Note that we must have the lock on the parent when invoking this function
+// static inline void double_link_children(__cilkrts_worker *const w,
+//                                         Closure *left, Closure *right) {
+
+//     if (left) {
+//         CILK_ASSERT(w, CLosure_get_right_sib(left) == (Closure *)NULL);
+//         left->right_sib = right;
+//     }
+
+//     if (right) {
+//         CILK_ASSERT(w, right->left_sib == (Closure *)NULL);
+//         right->left_sib = left;
+//     }
+// }
+
+static inline void Closure_reset_children(__cilkrts_worker *const w, worker_id self, Closure *parent) {
+    printf("w   %d  resetting children     parent  %p\n", w->self, parent);
+    Closure *next_child = atomic_load_explicit(&parent->right_most_child, memory_order_seq_cst);
+    Closure *orig = next_child;
+
+    if (next_child == NULL) {
+        // no siblings
+        return;
     }
 
-    if (right) {
-        CILK_ASSERT(w, right->left_sib == (Closure *)NULL);
-        right->left_sib = left;
+    uintptr_t old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
+    uintptr_t new_value;
+    Closure *prev_child = next_child;
+    while (Closure_is_removed(w, self, old_value)) {
+        atomic_store_explicit(&next_child->right_sib_removed, (uintptr_t)NULL & ~1ULL, memory_order_seq_cst); // reset remove bit 
+        next_child = next_child->left_sib; // must have left_sib pointer by the time you sync
+        prev_child->left_sib = NULL;
+        prev_child->left_most_fiber = NULL;
+        prev_child = next_child;
+        if (next_child == NULL) {
+            break;
+        }
+        old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
     }
-}
 
-// unlink the closure from its left and right siblings
-// Note that we must have the lock on the parent when invoking this function
-static inline void unlink_child(__cilkrts_worker *const w, Closure *cl) {
-
-    if (cl->left_sib) {
-        CILK_ASSERT(w, cl->left_sib->right_sib == cl);
-        cl->left_sib->right_sib = cl->right_sib;
-    }
-    if (cl->right_sib) {
-        CILK_ASSERT(w, cl->right_sib->left_sib == cl);
-        cl->right_sib->left_sib = cl->left_sib;
-    }
-    // used only for error checking
-    cl->left_sib = (Closure *)NULL;
-    cl->right_sib = (Closure *)NULL;
+    bool is_removed = atomic_compare_exchange_strong(&parent->right_most_child, &orig, NULL);
+    CILK_ASSERT(w, is_removed);
 }
 
 /***
@@ -488,6 +480,7 @@ static inline void unlink_child(__cilkrts_worker *const w, Closure *cl) {
  * it's ready to return, and it needs lock on the parent to do so, which
  * we are holding.  The pointer to new right most child is not visible
  * to anyone yet, so we don't need to lock that, either.
+ * double linking left and right; the right is always the new child
  ***/
 static inline
 void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *parent,
@@ -500,10 +493,75 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
     // Closure_assert_alienation(w, self, child);
 
     // setup sib links between parent's right most child and the new child
-    double_link_children(w, parent->right_most_child, child);
-    // now the new child becomes the right most child
-    parent->right_most_child = child;
+    Closure * next_child;
+
+    // update right most child first
+    // need a loop because it may be returning / deleted / cleaned up by other siblings
+    do {
+        next_child = atomic_load_explicit(&parent->right_most_child, memory_order_seq_cst);
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&parent->right_most_child, &next_child, child));
+
+    if (next_child == NULL) {
+        // no siblings
+        return;
+    }
+
+    uintptr_t old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
+    uintptr_t new_value;
+    Closure *prev_child = next_child;
+    // Loop to retry if compare-and-swap fails
+    do {
+        bool is_last = false;
+
+        printf("adding right sibling  worker   %d   right child   %p    sib   %p\n", w->self, child, old_value);
+
+        while (Closure_is_removed(w, self, old_value)) {
+            atomic_store_explicit(&next_child->right_sib_removed, (uintptr_t)NULL & ~1ULL, memory_order_seq_cst); // reset remove bit 
+            next_child = next_child->left_sib; // must have left_sib pointer by the time you set remove bit
+            prev_child->left_sib = NULL;
+            prev_child = next_child;
+            if (next_child == NULL) {
+                is_last = true;
+                break;
+            }
+            old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
+        }
+
+        if (is_last) {
+            // no sibling pointers to update
+            return;
+        }
+        child->left_sib = next_child;
+
+        CILK_ASSERT(w, !Closure_is_removed(w, self, old_value));
+
+        // Prepare the new value
+        new_value = (uintptr_t)child & ~1ULL;
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&next_child->right_sib_removed, &old_value, new_value));
 }
+
+// // unlink the closure from its left and right siblings
+// // Note that we must have the lock on the parent when invoking this function
+// static inline void unlink_child(__cilkrts_worker *const w, Closure *cl) {
+
+//     if (cl->left_sib) {
+//         CILK_ASSERT(w, cl->left_sib->right_sib == cl);
+//         cl->left_sib->right_sib = cl->right_sib;
+//     }
+//     if (cl->right_sib) {
+//         CILK_ASSERT(w, cl->right_sib->left_sib == cl);
+//         cl->right_sib->left_sib = cl->left_sib;
+//     }
+//     // used only for error checking
+//     cl->left_sib = (Closure *)NULL;
+//     cl->right_sib = (Closure *)NULL;
+// }
 
 /***
  * Remove the child from the closure tree.
@@ -517,24 +575,45 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
  * child gets unlinked at a time, and one child gets to modify the steal
  * tree at a time.
  ***/
-static inline
-void Closure_remove_child(__cilkrts_worker *const w, worker_id self, Closure *parent,
-                          Closure *child) {
-    CILK_ASSERT(w, child);
-    CILK_ASSERT(w, parent == child->spawn_parent);
-    printf("w   %d  removing child    %p      parent  %p\n", w->self, child, parent);
+// static inline
+// void Closure_remove_child(__cilkrts_worker *const w, worker_id self, Closure *parent,
+//                           Closure *child) {
+//     CILK_ASSERT(w, child);
+//     CILK_ASSERT(w, parent == child->spawn_parent);
+//     printf("w   %d  removing child    %p      parent  %p\n", w->self, child, parent);
 
-    // Closure_assert_ownership(w, self, parent);
-    // Closure_assert_ownership(w, self, child);
+//     // Closure_assert_ownership(w, self, parent);
+//     // Closure_assert_ownership(w, self, child);
 
-    if (child == parent->right_most_child) {
-        CILK_ASSERT(w, child->right_sib == (Closure *)NULL);
-        parent->right_most_child = child->left_sib;
-    }
+//     if (child == parent->right_most_child) {
+//         CILK_ASSERT(w, child->right_sib == (Closure *)NULL);
+//         parent->right_most_child = child->left_sib;
+//     }
 
-    CILK_ASSERT(w, child->right_ht == (hyper_table *)NULL);
+//     CILK_ASSERT(w, child->right_ht == (hyper_table *)NULL);
 
-    unlink_child(w, child);
+//     unlink_child(w, child);
+// }
+
+static inline void Closure_mark_child_remove(__cilkrts_worker *const w, worker_id self, Closure *child) {
+    CILK_ASSERT(w, child->status == CLOSURE_RETURNING);
+    child->status = CLOSURE_RUNNING;    // may reuse the stack entry on a later steal
+    child->spawn_parent = NULL;
+
+    uintptr_t old_value, new_value;
+
+    // Loop to retry if compare-and-swap fails
+    do {
+        printf("marking child for removal     %d    closure %p\n", w->self, child);
+        old_value = atomic_load_explicit(&child->right_sib_removed, memory_order_seq_cst);
+        CILK_ASSERT(w, !Closure_is_removed(w, self, old_value));
+
+        // Prepare the new value
+        new_value = old_value | 1ULL;
+
+        // Attempt to update atomically
+        // atomic_compare_exchange_strong returns true if the update was successful
+    } while (!atomic_compare_exchange_strong(&child->right_sib_removed, &old_value, new_value));
 }
 
 /***
@@ -586,8 +665,7 @@ void Closure_remove_callee(__cilkrts_worker *const w, Closure *caller) {
 
 /* This function is used for steal, the next function for sync.
    The invariants are slightly different. */
-static inline void Closure_suspend_victim(struct ReadyDeque *deques,
-                                          __cilkrts_worker *thief,
+static inline void Closure_suspend_victim(__cilkrts_worker *thief,
                                           __cilkrts_worker *victim,
                                           worker_id thief_id, worker_id victim_id,
                                           Closure *cl) {
@@ -600,7 +678,8 @@ static inline void Closure_suspend_victim(struct ReadyDeque *deques,
     // deque_assert_ownership(deques, thief, thief_id, victim_id);
 
     CILK_ASSERT(thief, cl == thief->g->root_closure || cl->spawn_parent ||
-                           cl->call_parent || (cl - 1)->status != CLOSURE_READY);
+                           cl->call_parent || (cl - 1)->stack_top || cl == cl->stack_top);
+    // worst case, check cl - 1 is a valid address
 
     printf("thief   %d      suspend victim %d   closure  %p\n", thief_id, victim_id, cl);
     Closure_change_status(thief, cl, CLOSURE_RUNNING, CLOSURE_SUSPENDED);
@@ -616,8 +695,7 @@ static inline void Closure_suspend_victim(struct ReadyDeque *deques,
     USE_UNUSED(cl1);
 }
 
-static inline void Closure_suspend(struct ReadyDeque *deques,
-                                   __cilkrts_worker *const w, worker_id self,
+static inline void Closure_suspend_on_sync(__cilkrts_worker *const w, worker_id self,
                                    Closure *cl, __cilkrts_stack_frame** old_exc) {
 
     Closure *cl1;
@@ -635,7 +713,7 @@ static inline void Closure_suspend(struct ReadyDeque *deques,
     CILK_ASSERT(w, __cilkrts_stolen(cl->frame));
 
     printf("suspend  %d   closure  %p\n", self, cl);
-    Closure_change_status(w, cl, CLOSURE_RUNNING, CLOSURE_SUSPENDED);
+    Closure_change_status(w, cl, CLOSURE_RUNNING, CLOSURE_SYNC);
     double_ptr fetch = pack_pointers(old_exc, cl);
 
     // cl1_orig = deque_xtract_bottom(deques, w, self, self);
@@ -660,7 +738,7 @@ static inline void Closure_clean(__cilkrts_worker *const w, Closure *t) {
     // sanity checks
     if (w) {
         CILK_ASSERT(w, t->left_sib == (Closure *)NULL);
-        CILK_ASSERT(w, t->right_sib == (Closure *)NULL);
+        CILK_ASSERT(w, Closure_get_right_sib(t) == (Closure *)NULL);
         CILK_ASSERT(w, t->right_most_child == (Closure *)NULL);
 
         CILK_ASSERT(w, t->user_ht == (hyper_table *)NULL);
@@ -668,7 +746,7 @@ static inline void Closure_clean(__cilkrts_worker *const w, Closure *t) {
         CILK_ASSERT(w, t->right_ht == (hyper_table *)NULL);
     } else {
         CILK_ASSERT_G(t->left_sib == (Closure *)NULL);
-        CILK_ASSERT_G(t->right_sib == (Closure *)NULL);
+        CILK_ASSERT_G(Closure_get_right_sib(t) == (Closure *)NULL);
         CILK_ASSERT_G(t->right_most_child == (Closure *)NULL);
 
         CILK_ASSERT_G(t->user_ht == (hyper_table *)NULL);
@@ -705,7 +783,7 @@ static inline void Closure_destroy_global(struct global_state *const g,
                                           Closure *t) {
     cilkrts_alert(CLOSURE, NULL, "Deallocate closure %p", (void *)t);
     t->status = CLOSURE_POST_INVALID;
-    Closure_clean(NULL, t);
+    // Closure_clean(NULL, t);
 
     CILK_ASSERT_G(t == t->stack_top);
     // free(t);

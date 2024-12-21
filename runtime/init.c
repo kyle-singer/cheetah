@@ -122,7 +122,7 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
     atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_seq_cst);
     w->closure_stack_head = (struct Closure *)calloc(g->options.deqdepth, sizeof(struct Closure));
     atomic_store_explicit(&w->closure_stack_tail, w->closure_stack_head, memory_order_seq_cst);
-    printf("allocating init stack   %p\n", w->closure_stack_head);
+    printf("allocating init stack   %p    worker    %d\n", w->closure_stack_head, w->self);
     for (unsigned int i = 0; i < g->options.deqdepth; i++) {
         w->closure_stack_head[i].stack_top = w->closure_stack_head;
         // Initialize other fields as needed
@@ -285,8 +285,9 @@ global_state *__cilkrts_startup(int argc, char *argv[]) {
     // allocate the closure and fiber.
     __cilkrts_worker *w0 = g->workers[0];
     printf("root\n");
-    Closure *t = Closure_create(w0, w0, w0->closure_stack_head, NULL);
+    Closure *t = w0->closure_stack_head;
     atomic_store_explicit(&w0->closure_stack_tail, w0->closure_stack_head + 1, memory_order_seq_cst);
+    w0->closure_stack_tail->spawn_parent = w0->closure_stack_head;
     struct cilk_fiber *fiber = cilk_fiber_allocate(w0, g->options.stacksize);
     w0->fiber = fiber;
     g->root_closure = t;
@@ -447,8 +448,9 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
 
     // Setup the stack pointer to point at the root closure's fiber.
     g->orig_rsp = SP(sf);
+    printf("cilkified root  fiber  %p    worker   %d\n", g->root_fiber, w->self);
     void *new_rsp =
-        (void *)sysdep_reset_stack_for_resume(w->fiber, sf);
+        (void *)sysdep_reset_stack_for_resume(g->root_fiber, sf);
     USE_UNUSED(new_rsp);
     CILK_ASSERT_G(SP(sf) == new_rsp);
 

@@ -22,6 +22,7 @@ typedef struct Closure Closure;
 enum ClosureStatus {
     CLOSURE_RUNNING = 0,
     CLOSURE_SUSPENDED,
+    CLOSURE_SYNC,
     CLOSURE_RETURNING,
     CLOSURE_READY,
     CLOSURE_PRE_INVALID, /* before first real use */
@@ -37,9 +38,9 @@ struct Closure {
     __cilkrts_stack_frame *frame; /* rest of the closure */
 
     _Atomic(Closure *) stack_top;
-    Closure * alias;
 
     struct cilk_fiber *left_most_fiber;
+    struct cilk_fiber *call_parent_fiber;
     struct cilk_fiber *fiber_child;
     struct cilk_fiber *ext_fiber_child;
 
@@ -57,9 +58,9 @@ struct Closure {
     Closure *spawn_parent; /* the "parent" closure that spawned */
 
     Closure *left_sib;  // left *spawned* sibling in the closure tree
-    Closure *right_sib; // right *spawned* sibling in the closur tree
+    _Atomic(uintptr_t) right_sib_removed; // right *spawned* sibling in the closure tree.  least significant bit 1 if this closure is marked for removal, 0 otherwise
     // right most *spawned* child in the closure tree
-    Closure *right_most_child;
+    _Atomic(Closure *) right_most_child;
 
     /*
      * stuff related to ready deque.
