@@ -34,7 +34,11 @@ struct __cilkrts_worker {
 
     // should only be modified by the worker itself during initialization or after doing a successful steal to initialize a new stack
     struct Closure *closure_stack_head;
-    _Atomic(struct Closure*) closure_stack_tail; // use atomic fetch add
+    _Atomic(struct Closure*) closure_stack_tail; // use atomic fetch add    stodo
+
+    struct Closure *free_list_head;
+
+    int local_free_list_size;
 
     // Cache line boundary on 64 bit systems with 64 byte cache lines
 

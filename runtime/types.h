@@ -10,6 +10,12 @@ typedef struct __cilkrts_stack_frame __cilkrts_stack_frame;
 typedef struct global_state global_state;
 typedef __uint128_t double_ptr;
 
+// upper 64 bits are unbounded counter, lower 64 bits are the Closure * value
+typedef __uint128_t stack_ptr;
+
+// upper 64 bits are [index - 12 bits, counter - 48 bits][Closure *]
+typedef __uint128_t stack_top_ptr;
+
 #define NO_WORKER 0xffffffffu /* type worker_id */
 
 // Constant representing invalid worker.

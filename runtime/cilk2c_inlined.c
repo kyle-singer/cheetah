@@ -111,6 +111,7 @@ __cilkrts_enter_frame(__cilkrts_stack_frame *sf) {
     sf->magic = frame_magic;
 
     struct cilk_fiber *fh = __cilkrts_current_fh;
+    CILK_ASSERT(w, fh);
     sf->fh = fh;
     sf->call_parent = fh->current_stack_frame;
     fh->current_stack_frame = sf;
@@ -131,6 +132,7 @@ __cilkrts_enter_frame_helper(__cilkrts_stack_frame *sf) {
     sf->magic = frame_magic;
 
     struct cilk_fiber *fh = __cilkrts_current_fh;
+    CILK_ASSERT(w, fh);
     sf->fh = fh;
     sf->call_parent = fh->current_stack_frame;
     fh->current_stack_frame = sf;
@@ -165,12 +167,19 @@ __cilkrts_detach(__cilkrts_stack_frame *sf) {
     sf->flags |= CILK_FRAME_DETACHED;
     struct __cilkrts_stack_frame **tail =
         atomic_load_explicit(&w->tail, memory_order_seq_cst);
-    CILK_ASSERT(w, (tail + 1) < w->ltq_limit);
+    // CILK_ASSERT(w, (tail + 1) < w->ltq_limit);
 
     // store parent at *tail, and then increment tail
-    *tail++ = parent;
+    ptrdiff_t raw_index = tail - w->l->shadow_stack;       // could be >= array length
+    CILK_ASSERT(w, raw_index >= 0);
+
+    ptrdiff_t circular_tail = raw_index % w->g->options.deqdepth;
+    CILK_ASSERT(w, (circular_tail + 1 + w->l->shadow_stack) < w->ltq_limit);
+
+    *(w->l->shadow_stack + circular_tail) = parent;
+    // *tail++ = parent;
     /* Release ordering ensures the two preceding stores are visible. */
-    atomic_store_explicit(&w->tail, tail, memory_order_release);
+    atomic_store_explicit(&w->tail, tail + 1, memory_order_release);
 }
 
 __attribute__((always_inline)) void __cilk_sync(__cilkrts_stack_frame *sf) {
@@ -226,6 +235,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
     // printf("leaving frame   curr stack frame    %p      worker  %d      was   %p\n", parent, w->self, sf->fh->current_stack_frame);
+    CILK_ASSERT(w, parent);
     sf->fh->current_stack_frame = parent;
     sf->call_parent = NULL;
 
@@ -252,7 +262,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
                       "__cilkrts_leave_frame parent is call_parent!");
         // leaving a full frame; need to get the full frame of its call
         // parent back onto the deque
-        printf("w   %d      leaving frame\n", w->self);
+        // printf("w   %d      leaving frame   %p\n", w->self, sf);
         Cilk_set_return(w);
         CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
     }
@@ -272,6 +282,7 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf) {
     // worker unnecessarily.
     __cilkrts_stack_frame *parent = sf->call_parent;
     // printf("leaving frame helper  curr stack frame    %p      worker  %d    was     %p\n", parent, w->self, sf->fh->current_stack_frame);
+    CILK_ASSERT(w, parent);
     sf->fh->current_stack_frame = parent;
     if (USE_EXTENSION) {
         __cilkrts_extend_return_from_spawn(w, &w->extension);
@@ -323,6 +334,7 @@ void __cilkrts_enter_landingpad(__cilkrts_stack_frame *sf, int32_t sel) {
     if (__cilkrts_need_to_cilkify)
         return;
 
+    CILK_ASSERT_G(sf);
     sf->fh->current_stack_frame = sf;
 
     // Don't do anything special during cleanups.
@@ -335,7 +347,7 @@ void __cilkrts_enter_landingpad(__cilkrts_stack_frame *sf, int32_t sel) {
 
 __attribute__((always_inline))
 void __cilkrts_pause_frame(__cilkrts_stack_frame *sf, char *exn) {
-    printf("pausing frame sf    %p\n", sf);
+    // printf("pausing frame sf    %p\n", sf);
     if (0 == __builtin_setjmp(sf->ctx))
         __cilkrts_cleanup_fiber(sf, 1);
 
@@ -349,6 +361,7 @@ void __cilkrts_pause_frame(__cilkrts_stack_frame *sf, char *exn) {
     // Pop this frame off the cactus stack.  This logic used to be in
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
+    CILK_ASSERT(w, parent);
     sf->fh->current_stack_frame = parent;
     sf->call_parent = NULL;
 

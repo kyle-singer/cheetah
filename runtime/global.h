@@ -118,6 +118,18 @@ struct global_state {
     // check in Closure_steal always fails.
     struct __cilkrts_worker dummy_worker;
 
+    _Atomic(double_ptr) stack_free_list_head;
+    _Atomic(double_ptr) stack_free_list_tail;
+
+    _Atomic(int) free_list_size;
+
+    struct Closure *dummy_closure;
+    struct Closure *last_dummy;
+
+    _Atomic(stack_top_ptr) free_list_top;
+
+    _Atomic(stack_ptr) *free_list;
+
     struct global_sched_stats stats;
 };
 

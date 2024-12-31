@@ -5,6 +5,7 @@
 #include "fiber.h"
 #include "local-hypertable.h"
 #include "mutex.h"
+#include "types.h"
 
 // Forward declaration
 typedef struct Closure Closure;
@@ -49,7 +50,7 @@ struct Closure {
     enum ClosureStatus status : 8; /* doubles as magic number */
     bool has_cilk_callee;
     bool exception_pending;
-    _Atomic(unsigned int) join_counter; /* number of outstanding spawned children */
+    _Atomic(__uint64_t) join_counter; /* number of outstanding spawned children */
     char *orig_rsp; /* the rsp one should use when sync successfully */
 
     Closure *callee;
@@ -61,7 +62,10 @@ struct Closure {
     _Atomic(uintptr_t) right_sib_removed; // right *spawned* sibling in the closure tree.  least significant bit 1 if this closure is marked for removal, 0 otherwise
     // right most *spawned* child in the closure tree
     _Atomic(Closure *) right_most_child;
+    Closure *free_list_next;      // singly linked list kept track of in global state
 
+    int64_t free_list_era;     // 0 for every closure except a top closure
+    bool is_sentinel;   // debugging purposes
     /*
      * stuff related to ready deque.
      *

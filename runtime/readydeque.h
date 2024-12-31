@@ -35,19 +35,19 @@ static inline void deque_assert_ownership(ReadyDeque *deques,
                                         memory_order_seq_cst) == self);
 }
 
-static inline void deque_lock_self(ReadyDeque *deques, worker_id self) {
-    worker_id id = self;
-    while (true) {
-        worker_id current_owner =
-            atomic_load_explicit(&deques[id].mutex_owner, memory_order_seq_cst);
-        if ((current_owner == NO_WORKER) &&
-            atomic_compare_exchange_weak_explicit(
-                &deques[id].mutex_owner, &current_owner, id,
-                memory_order_acq_rel, memory_order_seq_cst))
-            return;
-        busy_loop_pause();
-    }
-}
+// static inline void deque_lock_self(ReadyDeque *deques, worker_id self) {
+//     worker_id id = self;
+//     while (true) {
+//         worker_id current_owner =
+//             atomic_load_explicit(&deques[id].mutex_owner, memory_order_seq_cst);
+//         if ((current_owner == NO_WORKER) &&
+//             atomic_compare_exchange_weak_explicit(
+//                 &deques[id].mutex_owner, &current_owner, id,
+//                 memory_order_acq_rel, memory_order_seq_cst))
+//             return;
+//         busy_loop_pause();
+//     }
+// }
 
 static inline void deque_unlock_self(ReadyDeque *deques, worker_id self) {
     worker_id id = self;
@@ -68,19 +68,19 @@ static inline int deque_trylock(ReadyDeque *deques, worker_id self,
     return 0;
 }
 
-static inline void deque_lock(ReadyDeque *deques, worker_id self,
-                              worker_id pn) {
-    while (true) {
-        worker_id current_owner =
-            atomic_load_explicit(&deques[pn].mutex_owner, memory_order_seq_cst);
-        if ((current_owner == NO_WORKER) &&
-            atomic_compare_exchange_weak_explicit(
-                &deques[pn].mutex_owner, &current_owner, self,
-                memory_order_acq_rel, memory_order_seq_cst))
-            return;
-        busy_loop_pause();
-    }
-}
+// static inline void deque_lock(ReadyDeque *deques, worker_id self,
+//                               worker_id pn) {
+//     while (true) {
+//         worker_id current_owner =
+//             atomic_load_explicit(&deques[pn].mutex_owner, memory_order_seq_cst);
+//         if ((current_owner == NO_WORKER) &&
+//             atomic_compare_exchange_weak_explicit(
+//                 &deques[pn].mutex_owner, &current_owner, self,
+//                 memory_order_acq_rel, memory_order_seq_cst))
+//             return;
+//         busy_loop_pause();
+//     }
+// }
 
 static inline void deque_unlock(ReadyDeque *deques, worker_id self,
                                 worker_id pn) {
