@@ -86,7 +86,7 @@ struct Closure {
     Closure *next_ready;
     Closure *prev_ready;
 
-    hyper_table *right_ht;
+    _Atomic(hyper_table *) right_ht; // used by right siblings when theyre reducing with this closure
     hyper_table *child_ht;
     hyper_table *user_ht;
 

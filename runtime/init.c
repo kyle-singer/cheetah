@@ -102,7 +102,7 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
 
         w->closure_stack_head = (struct Closure *)calloc(g->options.deqdepth, sizeof(struct Closure));
         atomic_store_explicit(&w->closure_stack_tail, w->closure_stack_head, memory_order_seq_cst);
-        // printf("allocating init stack   %p    worker    %d\n", w->closure_stack_head, w->self);
+        printf("allocating init stack   %p    worker    %d\n", w->closure_stack_head, w->self);
         for (unsigned int i = 0; i < g->options.deqdepth; i++) {
             w->closure_stack_head[i].stack_top = w->closure_stack_head;
             // Initialize other fields as needed
@@ -299,7 +299,7 @@ global_state *__cilkrts_startup(int argc, char *argv[]) {
     // Create the root closure and a fiber to go with it.  Use worker 0 to
     // allocate the closure and fiber.
     __cilkrts_worker *w0 = g->workers[0];
-    // printf("root\n");
+    printf("root\n");
     Closure *t = w0->closure_stack_head;
     atomic_store_explicit(&w0->closure_stack_tail, w0->closure_stack_head + 1, memory_order_seq_cst);
     w0->closure_stack_tail->spawn_parent = w0->closure_stack_head;
@@ -463,7 +463,7 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
 
     // Setup the stack pointer to point at the root closure's fiber.
     g->orig_rsp = SP(sf);
-    // printf("cilkified root  fiber  %p    worker   %d\n", g->root_fiber, w->self);
+    printf("cilkified root  fiber  %p    worker   %d\n", g->root_fiber, w->self);
     void *new_rsp =
         (void *)sysdep_reset_stack_for_resume(g->root_fiber, sf);
     USE_UNUSED(new_rsp);
@@ -581,7 +581,7 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     __cilkrts_stack_frame **tail =
         atomic_load_explicit(&w->tail, memory_order_seq_cst);
     CILK_ASSERT(w, head == tail);
-    // printf("exit root worker    %d\n", w->self);
+    printf("exit root worker    %d\n", w->self);
     update_closure(w, (Closure *)NULL);
 
     WHEN_CILK_DEBUG(g->root_closure->owner_ready_deque = NO_WORKER);
@@ -617,7 +617,7 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
 }
 
 static void closure_stacks_destroy(global_state *g) {
-    // printf("freeing up closure stacks\n");
+    printf("freeing up closure stacks\n");
     Closure *closure;
     uint64_t counter;
     int index;
@@ -625,14 +625,10 @@ static void closure_stacks_destroy(global_state *g) {
     unpack_free_list_top(top, &index, &counter, &closure);
 
     finish_global_stack_update(g, index, counter, closure);
-    // printf("closure  stack   ind   %d\n", index);
-    // printf("closure  stack   2   %p\n", g->free_list[2]);
-    // printf("closure  stack   1   %p\n", g->free_list[1]);
-    // printf("closure  stack   0   %p\n", g->free_list[0]);
 
     for (int i = index; i > 0; i--) {
         Closure *curr = get_free_list_closure(g->free_list[i]);
-        // printf("freeing stack free list   %p   ind  %d\n", curr, i);
+        printf("freeing stack free list   %p   ind  %d\n", curr, i);
         free(curr);
     }
 }
@@ -731,7 +727,7 @@ static void workers_deinit(global_state *g) {
         cilk_internal_malloc_per_worker_destroy(w); // internal malloc last
         free(w->l->shadow_stack);
         w->l->shadow_stack = NULL;
-        // printf("freeing     %p\n", w->closure_stack_head);
+        printf("freeing     %p\n", w->closure_stack_head);
         if (w->closure_stack_head != g->root_closure) {
             // free(w->closure_stack_head);
             w->closure_stack_head = NULL;
@@ -740,7 +736,7 @@ static void workers_deinit(global_state *g) {
 
         Closure *curr = w->free_list_head;
         while (curr != NULL) {
-            // printf("freeing stack worker   %p  w   %d\n", curr, w->self);
+            printf("freeing stack worker   %p  w   %d\n", curr, w->self);
             Closure *next_stack = curr->free_list_next;
             free(curr);
             curr = next_stack; //stodo
