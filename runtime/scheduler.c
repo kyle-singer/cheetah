@@ -177,7 +177,7 @@ static void setup_for_execution(__cilkrts_worker *w, Closure *t) {
 
     printf("updating exc to   %p   worker   %d\n", new_init, w->self);
 
-    atomic_store_explicit(&w->tail, new_init, memory_order_release); 
+    atomic_store_explicit(&w->tail, new_init, memory_order_seq_cst); 
     // atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
     atomic_store_explicit(&w->exc_closure, pack_pointers(new_init, (Closure *)NULL), memory_order_seq_cst);
     // atomic_store_explicit(&w->head, init, memory_order_seq_cst);
@@ -206,6 +206,17 @@ static void setup_for_sync(__cilkrts_worker *w, worker_id self, Closure *t) {
     CILK_ASSERT(w, w->fiber != t->fiber_child || t == w->g->root_closure);
     printf("setup sync  w   %d      closure     %p\n", w->self, t);
 
+    Closure_reset_children(w, self, t);
+    Closure *to_free = NULL;
+
+    if (w->closure_stack_head != NULL && t->stack_top != w->closure_stack_head && w->closure_stack_head != w->g->root_closure) {
+        to_free = w->closure_stack_head;
+    }
+
+    w->closure_stack_head = t->stack_top;
+    printf("sync setting tail to   %p   worker   %d\n", t + 1, w->self);
+    atomic_store_explicit(&w->closure_stack_tail, t + 1, memory_order_seq_cst);
+
     // ANGE: note that in case a) this fiber won't get freed for awhile,
     // since we will longjmp back to the original function's fiber and
     // never go back to the runtime; we will only free it either once
@@ -215,20 +226,31 @@ static void setup_for_sync(__cilkrts_worker *w, worker_id self, Closure *t) {
         printf("deallocating fiber setup for worker  %d    closure   %p   fiber   %p\n", w->self, t, w->fiber);
         cilk_fiber_deallocate_to_pool(w, w->fiber);
 
-        if (w->closure_stack_head != NULL && t->stack_top != w->closure_stack_head && w->closure_stack_head != w->g->root_closure) {
-            printf("setup freeing   worker   %d    closure stack    %p\n", w->self, w->closure_stack_head);
-            // if (w->closure_stack_head != unpack_closure(w->g->stack_free_list_head)) {
-            //     printf("freeing stack   %p\n", w->closure_stack_head);
-            //     free(w->closure_stack_head);
-            // } else {
-                printf("setup closure stack freeing   %p   worker   %d\n", w->closure_stack_head, w->self);
-                Closure_clean(w, w->closure_stack_head);
-                Closure_stack_free(w, w->closure_stack_head);
-            // }
-            // Closure_stack_free(w, w->closure_stack_head);
-            w->closure_stack_head = NULL;
-            atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_seq_cst);
+        if (to_free) {
+            printf("setup closure stack freeing   %p   worker   %d\n", w->closure_stack_head, w->self);
+            Closure_stack_free(w, to_free);
         }
+
+        // if (w->closure_stack_head != NULL && t->stack_top != w->closure_stack_head && w->closure_stack_head != w->g->root_closure) {
+        //     // if (w->closure_stack_head != unpack_closure(w->g->stack_free_list_head)) {
+        //     //     printf("freeing stack   %p\n", w->closure_stack_head);
+        //     //     free(w->closure_stack_head);
+        //     // } else {
+        //     Closure *to_free = w->closure_stack_head;
+        //         printf("setup closure stack freeing   %p   worker   %d\n", w->closure_stack_head, w->self);
+        //     // }
+        //     // Closure_stack_free(w, w->closure_stack_head);
+            
+
+        //     Closure_clean(w, to_free);
+        //     Closure_stack_free(w, to_free);
+        //     // if (t == w->g->root_closure) {
+        //     //     atomic_store_explicit(&w->closure_stack_tail, t + 1, memory_order_seq_cst);
+        //     // } else {
+        //     //     atomic_store_explicit(&w->closure_stack_tail, t + 1, memory_order_seq_cst);
+        //     // }
+            
+        // }
     }
 
     w->fiber = t->fiber_child;
@@ -265,7 +287,6 @@ static void setup_for_sync(__cilkrts_worker *w, worker_id self, Closure *t) {
     t->orig_rsp = NULL; // unset once we have sync-ed
 
     t->left_most_fiber = NULL;
-    Closure_reset_children(w, self, t);
 }
 
 // ==============================================
@@ -367,7 +388,7 @@ void Cilk_set_return(__cilkrts_worker *const w) {
 }
 
 static Closure *provably_good_steal_maybe(__cilkrts_worker *const w,
-                                          worker_id self, Closure *parent) {
+                                          worker_id self, Closure *parent, int join_counter, bool hit_sync) {
 
     // Closure_assert_ownership(w, self, parent);
     local_state *l = w->l;
@@ -375,9 +396,9 @@ static Closure *provably_good_steal_maybe(__cilkrts_worker *const w,
     //               (void *)parent);
     CILK_ASSERT(w, !l->provably_good_steal);
     printf("try provably good steal  parent   %p   children     %d   callee  %p    worker   %d    parent status   %s\n", parent, atomic_load_explicit(&parent->join_counter, memory_order_seq_cst), parent->has_cilk_callee, w->self, Closure_status_to_str(parent->status));
-    int32_t join_counter;
-    bool hit_sync;
-    unpack_join_counter(atomic_load_explicit(&parent->join_counter, memory_order_seq_cst), &join_counter, &hit_sync);
+    // int32_t join_counter;
+    // bool hit_sync;
+    // unpack_join_counter(atomic_load_explicit(&parent->join_counter, memory_order_seq_cst), &join_counter, &hit_sync);
 
     if (!parent->has_cilk_callee && join_counter == 0 && hit_sync) {
         // cilkrts_alert(STEAL | ALERT_SYNC, w,
@@ -424,6 +445,7 @@ static void reduce_siblings_maybe(__cilkrts_worker *const w, Closure *child, Clo
         CILK_ASSERT(w, child->right_ht == NULL); 
 
         if (left_sib != NULL) {
+            printf("has left sib   child   %p   left sib   %p\n", child, left_sib);
             uintptr_t left_right_sib = atomic_load_explicit(&left_sib->right_sib_removed, memory_order_seq_cst);
             if (!Closure_is_removed(w, w->self, left_right_sib)) {
                 // if it hasn't been removed yet, we cant reduce with it or any further left siblings
@@ -454,7 +476,6 @@ static void reduce_siblings_maybe(__cilkrts_worker *const w, Closure *child, Clo
                 lht = left_sib->right_ht;
 
                 if (!atomic_compare_exchange_strong_explicit(&left_sib->right_ht, &lht, NULL, memory_order_seq_cst, memory_order_seq_cst)) {
-                    // someone else got to it first. just deposit our active_ht into this closure and leave
                     // n no one else should be touchhing this hypertable while were not removed
                     CILK_ASSERT(w, false);
                     // orig_child->right_ht = active_ht;
@@ -463,6 +484,7 @@ static void reduce_siblings_maybe(__cilkrts_worker *const w, Closure *child, Clo
                 printf("acquired left sib   %p  for   child   %p   worker    %d\n", left_sib, child, w->self);
             }
         } else {
+            printf("no left sib   child   %p   left sib   %p\n", child);
             if (is_left_most) {
                 // doesn't need to be modified atomically because it won't be read until the parent passes a sync which can
                 // only happen after this child decrements the join counter
@@ -472,7 +494,7 @@ static void reduce_siblings_maybe(__cilkrts_worker *const w, Closure *child, Clo
                 // until the parent passes the sync
                 CILK_ASSERT(w, lht == NULL);
                 parent->child_ht = active_ht;
-                CILK_ASSERT(w, child->right_ht == NULL);
+                CILK_ASSERT(w, child->right_ht == NULL); // as long as we only have left only reducers
                 printf("deposited child ht   %p  into parent    %p   worker   %d\n", child, parent, w->self);
                 break;
             } else {
@@ -555,7 +577,7 @@ static Closure *Closure_return(__cilkrts_worker *const w, worker_id self,
 
     CILK_ASSERT(w, parent);
 
-    printf("closure_return  w   %d      parent  %p      child   %p    sf    %p    parent status   %s\n", w->self, parent, child, child->frame, Closure_status_to_str(parent->status));
+    printf("closure_return  w   %d      parent  %p      child   %p    sf    %p    parent status   %s   is_left_most   %d\n", w->self, parent, child, child->frame, Closure_status_to_str(parent->status), is_left_most);
     CILK_ASSERT(w, child);
     // STODO, jc >0 means someone attempting to steal?
     CILK_ASSERT(w, get_join_counter(atomic_load_explicit(&child->join_counter, memory_order_seq_cst)) == 0);
@@ -599,7 +621,8 @@ static Closure *Closure_return(__cilkrts_worker *const w, worker_id self,
     // Execute left-holder logic for stacks.
     if (child->left_sib || parent->fiber_child) {
         // Case where we are not the leftmost stack.
-        // printf("deallocating fiber return for worker  %d    child   %p     wfiber  %p      parent fiber   %p\n", w->self, child, w->fiber, parent->fiber_child);
+        printf("deallocating fiber return for worker  %d    child   %p     left sib    %p    wfiber  %p      parent fiber   %p\n", w->self, child, child->left_sib, w->fiber, parent->fiber_child);
+        CILK_ASSERT(w, !is_left_most);
         CILK_ASSERT(w, parent->fiber_child != w->fiber || parent == w->g->root_closure);
         
         cilk_fiber_deallocate_to_pool(w, w->fiber);
@@ -610,13 +633,14 @@ static Closure *Closure_return(__cilkrts_worker *const w, worker_id self,
         // We are leftmost, pass stack/fiber up to parent.
         // Thus, no stack/fiber to free.
         CILK_ASSERT(w, w->fiber);
-        // printf("parent frame  %p    wframe  %p\n", parent->frame, w->fiber->current_stack_frame);
+        printf("parent frame  %p    wframe  %p\n", parent->frame, w->fiber->current_stack_frame);
         CILK_ASSERT(
             w, parent->frame == NULL || parent->frame == w->fiber->current_stack_frame);
 
         if (is_left_most || parent == w->g->root_closure) {
+            printf("parent was ready    worker  %d    parent   %p    child   %p\n", w->self, parent, child);
             if (parent->left_most_fiber != NULL) {
-                // printf("parent was ready    worker  %d    parent   %p    child   %p\n", w->self, parent, child);
+                
                 CILK_ASSERT_POINTER_EQUAL(w, parent->left_most_fiber, w->fiber);
             }
             parent->fiber_child = w->fiber;
@@ -662,24 +686,24 @@ static Closure *Closure_return(__cilkrts_worker *const w, worker_id self,
     // CILK_ASSERT(w, parent->frame->magic == CILK_STACKFRAME_MAGIC);
     // CILK_ASSERT(w, atomic_load_explicit(&parent->join_counter, memory_order_seq_cst));
 
+    int new_jc;
+    bool did_hit_sync;
+
     // CILK_ASSERT(w, join_counter >= 0);
     Closure_mark_child_remove(w, self, child);
-    decrement_join_counter(w, parent);
+    decrement_join_counter_and_fetch(w, parent, &new_jc, &did_hit_sync);
 
-    res = provably_good_steal_maybe(w, self, parent);
+    res = provably_good_steal_maybe(w, self, parent, new_jc, did_hit_sync);
 
     if (res) {
         hyper_table *child_ht = parent->child_ht;
         hyper_table *active_ht = parent->user_ht;
         parent->child_ht = NULL;
         parent->user_ht = NULL;
-        printf("provable good merging tables   child   %p   parent  %p  worker   %d\n", child, parent, w->self);
+        printf("provable good merge tables   child   %p   parent  %p  worker   %d\n", child, parent, w->self);
         w->hyper_table = merge_two_hts(w, child_ht, active_ht);
 
         setup_for_execution(w, res);
-        
-        // w->closure_stack_head = (struct Closure *)calloc(w->g->options.deqdepth, sizeof(struct Closure));
-        // printf("allocating stack    %p\n", w->closure_stack_head);
     } else {
         w->closure_stack_head = NULL;
         atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_seq_cst);
@@ -752,7 +776,7 @@ void Cilk_exception_handler(__cilkrts_worker *w, char *exn, __cilkrts_stack_fram
     
 
     cilkrts_alert(EXCEPT, w, "(Cilk_exception_handler) closure %p!", (void *)t);
-    printf("exception_handler   t    %p     status     %s   worker  %d      head    %p      tail    %p\n", t, Closure_status_to_str(t->status), w->self, old_exc, tail);
+    // printf("exception_handler   t    %p     status     %s   worker  %d      head    %p      tail    %p\n", t, Closure_status_to_str(t->status), w->self, old_exc, tail);
     CILK_ASSERT(w, t);
     
 
@@ -760,7 +784,7 @@ void Cilk_exception_handler(__cilkrts_worker *w, char *exn, __cilkrts_stack_fram
     if (old_exc == tail && reset_exception_pointer(w, self, t, old_exc)) {
         // won the race
         // stodo should i do tail+1
-        printf("w   %d  won the race setting head   closure   %p    exc   %p    tail    %p\n", self, t, old_exc + 1, tail + 1);
+        // printf("w   %d  won the race setting head   closure   %p    exc   %p    tail    %p\n", self, t, old_exc + 1, tail + 1);
         atomic_store_explicit(&w->tail, tail + 1, memory_order_seq_cst);
         return;
     }
@@ -858,7 +882,7 @@ static __cilkrts_stack_frame **do_dekker_on(__cilkrts_worker *const w,
     atomic_thread_fence(memory_order_seq_cst);
 
     __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&victim_w->tail, memory_order_acquire);
+        atomic_load_explicit(&victim_w->tail, memory_order_seq_cst);
     if (head >= tail || cur_closure != cl) {
         printf("w   %d      steal failed    head    %p     cur_closure     %p    victim     %d\n", w->self, head, cur_closure, victim_w->self);
         // decrement_exception_pointer(w, self, victim_w, cl);
@@ -908,10 +932,10 @@ static Closure *promote_child(__cilkrts_stack_frame **head,
     if (cl >= victim_w->closure_stack_head && cl < victim_w->closure_stack_head + w->g->options.deqdepth) {
         steal_tail = cl + 1;
         *is_left_most = true;
-        // printf("same stack  w   %d    cl    %p\n", w->self, cl);
+        printf("same stack  w   %d    cl    %p\n", w->self, cl);
     } else {
         steal_tail = atomic_load_explicit(&victim_w->closure_stack_tail, memory_order_seq_cst);
-        // printf("fresh stack w   %d    cl    %p\n", w->self, cl);
+        printf("fresh stack w   %d    cl    %p    steal tail   %p\n", w->self, cl, steal_tail);
     }
 
     __cilkrts_stack_frame *frame_to_steal = *((head - victim_w->l->shadow_stack) % w->g->options.deqdepth + victim_w->l->shadow_stack);
@@ -937,7 +961,7 @@ static Closure *promote_child(__cilkrts_stack_frame **head,
     /* CILK_ASSERT(w, head <= victim_w->tail); */
 
     CILK_ASSERT(w, frame_to_steal != NULL);
-    // printf("w       %d      victim      %d      steal tail      %p      child tail     %p    cl      %p    frame    %p\n", w->self, victim_w->self, *res, spawn_child, cl, frame_to_steal);
+    printf("w       %d      victim      %d      steal tail      %p      child tail     %p    cl      %p    frame    %p\n", w->self, victim_w->self, *res, spawn_child, cl, frame_to_steal);
     
     return spawn_child;
 
@@ -1119,7 +1143,7 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
     Closure *res = NULL, *child;
     
 
-    // printf("extracting cl   %p      stack top    %p     worker  %d      victim  %d      tail    %p      old_exc    %p\n", cl, cl->stack_top, self, victim_id, atomic_load_explicit(&victim_w->tail, memory_order_seq_cst), head);
+    printf("extracting cl   %p      stack top    %p     worker  %d      victim  %d      tail    %p      old_exc    %p\n", cl, cl->stack_top, self, victim_id, atomic_load_explicit(&victim_w->tail, memory_order_seq_cst), head);
 
     // deque_assert_ownership(deques, w, self, victim_id);
     // Closure_assert_ownership(w, self, cl);
@@ -1145,7 +1169,7 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
     // update_exc_closure_abort(victim_w, old_exc, cl, old_exc + 1, child)
     if (!atomic_compare_exchange_strong(&victim_w->exc_closure, &old_value, new_value)) {
         // we might have suspended the victim and the victim returned but we didnt succeed in steal
-        // printf("w       %d      aborted at end      victim      %d   expect_exc     %p   victim_exc  %p      victim_closure  %p\n", w->self, victim_w->self, head, unpack_exc(old_value), unpack_closure(old_value));
+        printf("w       %d      aborted at end      victim      %d   expect_exc     %p   victim_exc  %p      victim_closure  %p\n", w->self, victim_w->self, head, unpack_exc(old_value), unpack_closure(old_value));
         return (Closure *)NULL;
         
     } else {
@@ -1173,10 +1197,10 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
         // worst case, check cl - 1 is a valid address or were on a fresh stack
 
         if (cl_frame == frame_to_steal) {   // stolen before
-            // printf("stolen before   w   %d  victim  %d  closure     %p\n", w->self, victim_w->self, cl);
+            printf("stolen before   w   %d  victim  %d  closure     %p\n", w->self, victim_w->self, cl);
             CILK_ASSERT(w, __cilkrts_stolen(frame_to_steal));
         } else if (trivial_stacklet(frame_to_steal)) { // spawning expression
-            // printf("spawning expression   w   %d  victim  %d  closure     %p\n", w->self, victim_w->self, cl);
+            printf("spawning expression   w   %d  victim  %d  closure     %p\n", w->self, victim_w->self, cl);
             CILK_ASSERT(w, __cilkrts_not_stolen(frame_to_steal));
             CILK_ASSERT(w, frame_to_steal->call_parent &&
                             __cilkrts_stolen(frame_to_steal->call_parent));
@@ -1184,7 +1208,7 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
             __cilkrts_set_stolen(frame_to_steal);
             Closure_set_frame(w, cl, frame_to_steal);
         } else { // spawning a function and stacklet never gotten stolen before
-            // printf("never stolen   w   %d  victim  %d  closure     %p\n", w->self, victim_w->self, cl);
+            printf("never stolen   w   %d  victim  %d  closure     %p\n", w->self, victim_w->self, cl);
             Closure_set_frame(w, res, frame_to_steal);
             __cilkrts_set_stolen(frame_to_steal);
             
@@ -1207,7 +1231,7 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
 
         CILK_ASSERT(w, res->has_cilk_callee == 0);
         if (!is_left_most) {
-            CILK_ASSERT_POINTER_EQUAL(w, child->spawn_parent, res);
+            CILK_ASSERT(w, child->spawn_parent == res || Closure_is_removed(w, self, atomic_load_explicit(&child->right_sib_removed, memory_order_seq_cst)));
         }
         
         child->spawn_parent = res;   // need this pointer to put ur map and fiber on return. may matter for when you return and try provably good steal. stodo - dont attempt if null
@@ -1224,13 +1248,13 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
 
         
         w->fiber = cilk_fiber_allocate_from_pool(w);
-        // printf("allocating fiber for worker  %d    victim   %d\n", w->self, victim_id);
+        printf("allocating fiber for worker  %d    victim   %d\n", w->self, victim_id);
         if (is_left_most) {
             struct cilk_fiber *parent_fiber = frame_to_steal->fh;
             CILK_ASSERT(w, parent_fiber);
             CILK_ASSERT(w, res->left_most_fiber == NULL || res->left_most_fiber == parent_fiber);
             res->left_most_fiber = parent_fiber;
-            // printf("setting left most fiber for closure  %p   worker   %d   victim   %d\n", res, w->self, victim_id);
+            printf("setting left most fiber for closure  %p   worker   %d   victim   %d\n", res, w->self, victim_id);
         } 
 
         // // make sure we are not holding the lock on child
@@ -1311,7 +1335,7 @@ static Closure *extract_top_spawning_closure(__cilkrts_stack_frame **head,
 
 static bool global_stack_pop(struct __cilkrts_worker *const w, Closure **existing_stack) {
     // always pop from the head
-    // printf("try pop global stack   worker   %d \n", w->self);
+    printf("try pop global stack   worker   %d \n", w->self);
     
     Closure* recent_closure = NULL;
     __uint16_t index = 0;
@@ -1323,7 +1347,7 @@ static bool global_stack_pop(struct __cilkrts_worker *const w, Closure **existin
     while (true) {
         stamped_recent_closure = atomic_load_explicit(&w->g->free_list_top, memory_order_seq_cst);
         unpack_free_list_top(stamped_recent_closure, &index, &counter, &recent_closure);
-        // printf("popping global   top was  %p   ind   %d   counter   %d\n", recent_closure, index, counter);
+        printf("popping global   top was  %p   ind   %d   counter   %d\n", recent_closure, index, counter);
 
         // help previous modification
         finish_global_stack_update(w->g, index, counter, recent_closure);
@@ -1338,7 +1362,7 @@ static bool global_stack_pop(struct __cilkrts_worker *const w, Closure **existin
         unpack_free_list_node(below_top, &new_counter, &new_closure);
         if (atomic_compare_exchange_strong_explicit(&w->g->free_list_top, &stamped_recent_closure, pack_free_list_top(index - 1, new_counter + 1, new_closure), memory_order_seq_cst, memory_order_seq_cst)) {
             *existing_stack = recent_closure;
-            // printf("popping from stack list  worker   %d    closure   %p  new_ind   %d   next cl is   %p   next_ind   %d\n", w->self, recent_closure, index, new_closure, index - 1);
+            printf("popping from stack list  worker   %d    closure   %p  new_ind   %d   next cl is   %p   next_ind   %d\n", w->self, recent_closure, index, new_closure, index - 1);
             return true;
         }
     }
@@ -1370,7 +1394,7 @@ static bool global_stack_pop(struct __cilkrts_worker *const w, Closure **existin
 static Closure * Closure_stack_allocate(struct __cilkrts_worker *const w) {
     Closure *existing_stack = (Closure *)NULL;
     if (w->free_list_head != NULL) {
-        // printf("worker local allocate   worker   %d\n", w->self);
+        printf("worker local allocate   worker   %d\n", w->self);
         existing_stack = w->free_list_head;
         w->free_list_head = existing_stack->free_list_next;
         existing_stack->free_list_era += 1;
@@ -1380,20 +1404,20 @@ static Closure * Closure_stack_allocate(struct __cilkrts_worker *const w) {
         if (w->local_free_list_size == 0) {
             CILK_ASSERT(w, w->free_list_head == NULL);
         }
-        // printf("allocating worker-local existing stack    %p    era   %d    worker   %d\n", existing_stack, existing_stack->free_list_era, w->self);
+        printf("allocating worker-local existing stack    %p    era   %d    worker   %d\n", existing_stack, existing_stack->free_list_era, w->self);
         return existing_stack;
     } else {
         bool success = global_stack_pop(w, &existing_stack);
         if (success) {
             existing_stack->free_list_era += 1;
             existing_stack->free_list_next = NULL;
-            // printf("allocating global existing stack    %p    era   %d    worker   %d\n", existing_stack, existing_stack->free_list_era, w->self);
+            printf("allocating global existing stack    %p    era   %d    worker   %d\n", existing_stack, existing_stack->free_list_era, w->self);
             return existing_stack;
         }
-        // printf("run alloc  worker   %d\n", w->self);
+        printf("run alloc  worker   %d\n", w->self);
         Closure *new_stack = (struct Closure *)calloc(w->g->options.deqdepth, sizeof(struct Closure));
         CILK_ASSERT(w, new_stack->free_list_era == 0);
-        // printf("allocating new stack    %p    worker    %d     free list size   %d\n", new_stack, w->self, w->g->free_list_size);
+        printf("allocating new stack    %p    worker    %d     free list size   %d\n", new_stack, w->self, w->g->free_list_size);
 
         return new_stack;
     }
@@ -1427,6 +1451,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
     double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_seq_cst);
     cl = unpack_closure(exc_closure);
     __cilkrts_stack_frame **old_exc = unpack_exc(exc_closure);
+    tail = atomic_load_explicit(&victim_w->tail, memory_order_seq_cst);
     if (old_exc >= tail) {
         return NULL;
     }
@@ -1465,7 +1490,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
                 if (res == (Closure *)NULL) {
                     goto give_up;
                 }
-                // printf("still here   w   %d     new era   %d    old era   %d\n", w->self, cl->stack_top->free_list_era, era);
+                printf("still here   w   %d     new era   %d    old era   %d\n", w->self, cl->stack_top->free_list_era, era);
                 CILK_ASSERT(w, w->fiber);
                 CILK_ASSERT(w, cl->stack_top->free_list_era == era);    // sanity check to make sure this isnt a reuse of the stack
                 // Closure_assert_ownership(w, self, res);
@@ -1480,22 +1505,22 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
                               (void *)res, (void *)w->fiber,
                               (void *)res->left_most_fiber);
                 setup_for_execution(w, res);
-                // printf("closure stack head was   %p   worker   %d    eq %d\n", w->closure_stack_head, w->self, w->closure_stack_head == NULL);
-                if (w->closure_stack_head == NULL || w->closure_stack_head->status != CLOSURE_RUNNING) {
-                    // printf("closure size %ld    worker    %d    stack frame size   %ld\n", sizeof(struct Closure) * w->g->options.deqdepth, w->self, sizeof(__cilkrts_stack_frame **) * w->g->options.deqdepth);
+                printf("closure stack head was   %p   worker   %d    eq %d\n", w->closure_stack_head, w->self, w->closure_stack_head == NULL);
+                // if (w->closure_stack_head == NULL || w->closure_stack_head->status != CLOSURE_RUNNING) {
+                    printf("closure size %ld    worker    %d    stack frame size   %ld\n", sizeof(struct Closure) * w->g->options.deqdepth, w->self, sizeof(__cilkrts_stack_frame **) * w->g->options.deqdepth);
                     w->closure_stack_head = Closure_stack_allocate(w);
                     atomic_store_explicit(&w->closure_stack_tail, w->closure_stack_head, memory_order_seq_cst);
-                    // printf("allocating steal stack      %p       w    %d    with fiber   %p\n", w->closure_stack_head, w->self, w->fiber);
+                    printf("allocating steal stack      %p       w    %d    with fiber   %p\n", w->closure_stack_head, w->self, w->fiber);
                     for (unsigned int i = 0; i < w->g->options.deqdepth; i++) {
                         CILK_ASSERT(w, w->closure_stack_head);
                         w->closure_stack_head[i].stack_top = w->closure_stack_head;
                         // Initialize other fields as needed
                     }
-                }
+                // }
 
                 // w->closure_stack_head = (struct Closure *)calloc(w->g->options.deqdepth, sizeof(struct Closure));
                 
-                // printf("setting closure    %p    spawn_parent    %p    worker    %d\n", w->closure_stack_head, res, w->self);
+                printf("setting closure    %p    spawn_parent    %p    worker    %d\n", w->closure_stack_head, res, w->self);
                 w->closure_stack_head->spawn_parent = res;
                 // Closure_unlock(w, self, res);
             } else {
@@ -1584,7 +1609,7 @@ void longjmp_to_user_code(__cilkrts_worker *w, Closure *t) {
         if (t == g->root_closure && *initialized == false) {
             *initialized = true;
         } else {
-            // printf("longjmp fiber  %p    worker   %d\n", fiber, w->self);
+            printf("longjmp fiber  %p    worker   %d\n", fiber, w->self);
             void *new_rsp = sysdep_reset_stack_for_resume(fiber, sf);
             USE_UNUSED(new_rsp);
             CILK_ASSERT(w, SP(sf) == new_rsp);
@@ -1639,14 +1664,27 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
     double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
     t = unpack_closure(exc_closure);
     __cilkrts_stack_frame** old_exc = unpack_exc(exc_closure);
+    __cilkrts_stack_frame** tail = atomic_load_explicit(&w->tail, memory_order_seq_cst);
     
     // CILK_ASSERT(w, t_orig == t);
     // Closure_lock(w, self, t);
     /* assert we are really at the top of the stack */
     // CILK_ASSERT(w, Closure_at_top_of_stack(w, frame)); stodo might be false 
-    // printf("syncing worker  %d      closure     %p      exc   %p   tail  %p\n", w->self, t, old_exc, atomic_load_explicit(&w->tail, memory_order_seq_cst));
-    CILK_ASSERT(w, old_exc == atomic_load_explicit(&w->tail, memory_order_seq_cst));
-    // printf("syncing  worker  %d      closure     %p      stack top    %p    children   %d   closure_status      %s    frame   %p\n", w->self, t, t->stack_top, atomic_load_explicit(&t->join_counter, memory_order_seq_cst), Closure_status_to_str(t->status), frame);
+    printf("syncing worker  %d      closure     %p      exc   %p   tail  %p\n", w->self, t, old_exc, tail);
+    CILK_ASSERT(w, old_exc == tail); // if not true, got stolen?
+
+    // if (old_exc == tail && reset_exception_pointer(w, self, t, old_exc)) {
+    //     // won the race
+    //     // stodo should i do tail+1
+    //     printf("w   %d  sync won the race setting head   closure   %p    exc   %p    tail    %p\n", self, t, old_exc + 1, tail + 1);
+    //     atomic_store_explicit(&w->tail, tail + 1, memory_order_seq_cst);
+    // } else {
+    //     CILK_ASSERT(w, false);
+    // }
+
+    // old_exc += 1;
+
+    printf("syncing  worker  %d      closure     %p      stack top    %p    children   %d   closure_status      %s    frame   %p\n", w->self, t, t->stack_top, atomic_load_explicit(&t->join_counter, memory_order_seq_cst), Closure_status_to_str(t->status), frame);
     CILK_ASSERT(w, t->status == CLOSURE_RUNNING);
     CILK_ASSERT(w, frame && (t->frame == frame));
     CILK_ASSERT(w, __cilkrts_stolen(frame));
@@ -1690,8 +1728,7 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
             //  && w->closure_stack_head->spawn_parent->stack_top != t->stack_top && w->closure_stack_head->call_parent == NULL
 
             if (w->closure_stack_head != NULL && w->closure_stack_head != w->g->root_closure && w->closure_stack_head != t->stack_top) {
-                // printf("freeing   worker   %d    closure stack    %p\n", w->self, w->closure_stack_head);
-                // printf("sync closure stack freeing   %p   worker   %d\n", w->closure_stack_head, w->self);
+                printf("sync closure stack freeing   %p   worker   %d\n", w->closure_stack_head, w->self);
                 Closure_clean(w, w->closure_stack_head);
                 Closure_stack_free(w, w->closure_stack_head);
             }
@@ -1712,7 +1749,7 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
         // provably good steal occurs.
         res = SYNC_NOT_READY;
         // Closure_change_status(w, t, CLOSURE_RUNNING, CLOSURE_SYNC);
-        // printf("suspended reset tail   worker   %d   stack   %p\n", w->self, w->closure_stack_head);
+        printf("suspended reset tail   worker   %d   stack   %p\n", w->self, w->closure_stack_head);
         w->closure_stack_head = NULL;
         atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_seq_cst);
         
@@ -1767,7 +1804,7 @@ static void do_what_it_says(__cilkrts_worker *w,
             f = t->frame;
             cilkrts_alert(SCHED, w, "(do_what_it_says) resume_sf = %p",
                           (void *)f);
-            // printf("do_what_it_says     w   %d  closure   %p    stack top     %p\n", w->self, t, t->stack_top);
+            printf("do_what_it_says     w   %d  closure   %p    stack top     %p\n", w->self, t, t->stack_top);
             CILK_ASSERT(w, f);
             USE_UNUSED(f);
 
@@ -1779,12 +1816,12 @@ static void do_what_it_says(__cilkrts_worker *w,
             bool success = fetch_and_update_closure_abort(w, t, (Closure *)NULL, &fetch);
             // update_closure_expected_abort(w, old_exc, (Closure *)NULL, &fetch);
             if (!success) {
-                // printf("failed to nullify \n");
+                printf("failed to nullify \n");
                 CILK_ASSERT(w, false);
             }
 
             // update_closure(w, t);
-            // printf("w   %d      claimed     %p\n", w->self, t);
+            printf("w   %d      claimed     %p\n", w->self, t);
 
             // deque_unlock_self(deques, self);
 
@@ -1794,7 +1831,7 @@ static void do_what_it_says(__cilkrts_worker *w,
             // longjmp invalidates non-volatile variables
             __cilkrts_worker *volatile w_save = w;
             if (__builtin_setjmp(l->rts_ctx) == 0) {
-                // printf("jumping to user code  worker    %d    closure   %p\n", w->self, t);
+                printf("jumping to user code  worker    %d    closure   %p\n", w->self, t);
                 worker_change_state(w, WORKER_RUN);
                 longjmp_to_user_code(w, t);
             } else {
@@ -1825,7 +1862,7 @@ static void do_what_it_says(__cilkrts_worker *w,
                     // point, as we jumped here from Cilk_exception_handler.
                     // deque_xtract_bottom(deques, w, self, self);
                     t = fetch_and_update_closure(w, (Closure *)NULL);
-                    // printf("extracting closure  %p      worker      %d\n", t, self);
+                    printf("return extracting closure  %p      worker      %d\n", t, self);
 
                     // deque_unlock_self(deques, self);
                 }
@@ -1855,7 +1892,7 @@ static void do_what_it_says(__cilkrts_worker *w,
 // Thin wrapper around do_what_it_says to allow the boss thread to execute the
 // Cilk computation until it would enter the work-stealing loop.
 void do_what_it_says_boss(__cilkrts_worker *w, Closure *t) {
-    // printf("do what it says boss    w   %d      closure     %p\n", w->self, t);
+    printf("do what it says boss    w   %d      closure     %p\n", w->self, t);
     CILK_ASSERT(w, t == w->g->root_closure);
     w->fiber = w->g->root_fiber;
     w->closure_stack_head = t;
@@ -1882,7 +1919,7 @@ void do_what_it_says_boss(__cilkrts_worker *w, Closure *t) {
 }
 
 void worker_scheduler(__cilkrts_worker *w) {
-    // printf("scheduler   worker   %d\n", w->self);
+    printf("scheduler   worker   %d\n", w->self);
     Closure *t = NULL;
     CILK_ASSERT(w, w == __cilkrts_get_tls_worker());
 

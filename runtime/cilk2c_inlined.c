@@ -180,7 +180,8 @@ __cilkrts_detach(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent) {
     *(w->l->shadow_stack + circular_tail) = parent;
     // *tail++ = parent;
     /* Release ordering ensures the two preceding stores are visible. */
-    atomic_store_explicit(&w->tail, tail + 1, memory_order_release);
+    // printf("increment tail to    %p    worker    %d\n", tail + 1, w->self);
+    atomic_store_explicit(&w->tail, tail + 1, memory_order_seq_cst);
 }
 
 __attribute__((always_inline)) void __cilk_sync(__cilkrts_stack_frame *sf) {

@@ -31,6 +31,7 @@ static inline void Closure_clean(__cilkrts_worker *const w, Closure *t) {
     t->left_most_fiber = NULL;
     t->status = CLOSURE_RUNNING;
     t->frame = NULL;
+    t->fiber_child = NULL;
 
     // push to the tail of the linked list
     // atomic_store_explicit(&t->free_list_next, NULL, memory_order_seq_cst);
@@ -170,7 +171,7 @@ increment_exc(__cilkrts_worker *w) {
 }
 
 static inline __attribute((always_inline)) void
-decrement_join_counter(__cilkrts_worker *w, Closure *closure) {
+decrement_join_counter_and_fetch(__cilkrts_worker *w, Closure *closure, int *new_jc, bool *did_hit_sync) {
     __uint64_t old_value, new_value;
     old_value = atomic_load_explicit(&closure->join_counter, memory_order_seq_cst);
 
@@ -182,6 +183,9 @@ decrement_join_counter(__cilkrts_worker *w, Closure *closure) {
         // Prepare the new value
         unpack_join_counter(old_value, &join_counter, &hit_sync);
         new_value = pack_join_counter(join_counter - 1, hit_sync);
+
+        *new_jc = join_counter - 1;
+        *did_hit_sync = hit_sync;
 
         // Attempt to update atomically
         // atomic_compare_exchange_strong returns true if the update was successful
@@ -667,8 +671,8 @@ static inline void Closure_clean_root(Closure *t) {
 }
 
 static inline void Closure_reset_children(__cilkrts_worker *const w, worker_id self, Closure *parent) {
-    printf("w   %d  resetting children     parent  %p\n", w->self, parent);
     Closure *next_child = atomic_load_explicit(&parent->right_most_child, memory_order_seq_cst);
+    printf("w   %d  resetting children     parent  %p   right most child was   %p\n", w->self, parent, next_child);
     Closure *orig = next_child;
     bool reached_end = false;
 
@@ -710,7 +714,10 @@ static inline void Closure_reset_children(__cilkrts_worker *const w, worker_id s
         old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
     }
 
+    printf("non removed child is    %p    worker    %d\n", next_child, w->self);
+
     bool is_removed = atomic_compare_exchange_strong(&parent->right_most_child, &orig, NULL);
+    printf("right most child was actually    %p  worker   %d\n", orig, w->self);
     CILK_ASSERT(w, is_removed);
     CILK_ASSERT(w, reached_end);
 
@@ -767,7 +774,6 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
     // Loop to retry if compare-and-swap fails
     do {
         bool is_last = false;
-
         printf("adding right sibling  worker   %d   right child   %p    sib   %p\n", w->self, child, old_value);
 
         while (Closure_is_removed(w, self, old_value)) {
@@ -792,8 +798,6 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
             // no sibling pointers to update
             return;
         }
-        child->left_sib = next_child;
-
         CILK_ASSERT(w, !Closure_is_removed(w, self, old_value));
 
         // child->right_sib_removed may or may not be marked depending on race with victim
@@ -804,6 +808,9 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
         // Attempt to update atomically
         // atomic_compare_exchange_strong returns true if the update was successful
     } while (!atomic_compare_exchange_strong(&next_child->right_sib_removed, &old_value, new_value));
+
+    printf("adding left sib    %p   for child   %p\n", next_child, child);
+    child->left_sib = next_child;
 }
 
 // // unlink the closure from its left and right siblings
