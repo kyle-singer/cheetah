@@ -352,7 +352,7 @@ void __cilkrts_enter_landingpad(__cilkrts_stack_frame *sf, int32_t sel) {
 __attribute__((always_inline)) void
 __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
                       char *exn, bool spawner) {
-    printf("pausing frame sf    %p\n", sf);
+    // printf("pausing frame sf    %p\n", sf);
     if (0 == __builtin_setjmp(sf->ctx))
         __cilkrts_cleanup_fiber(sf, 1);
 

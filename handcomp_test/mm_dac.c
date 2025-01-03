@@ -195,16 +195,18 @@ static void test_mm(int n, int check) {
     }
     print_runtime(running_time, TIMING_COUNT);
 
-    fprintf(stderr, "Checking result ...\n");
-    int * Cs = (int*) malloc(sizeof(int) * (n*n));
-    zero_matrix(Cs, n);
-    mm_dac_serial(Cs, A, B, n, n);
-    if(!are_equal_matrices(C, Cs, n)) {
-        fprintf(stderr, "MM_dac test FAILED.\n");
-    } else {
-        fprintf(stderr, "MM_dac test passed.\n");
-    }
-    free(Cs);
+    // if(check) {
+        fprintf(stderr, "Checking result ...\n");
+        int * Cs = (int*) malloc(sizeof(int) * (n*n));
+        zero_matrix(Cs, n);
+        mm_dac_serial(Cs, A, B, n, n);
+        if(!are_equal_matrices(C, Cs, n)) {
+            fprintf(stderr, "MM_dac test FAILED.\n");
+        } else {
+            fprintf(stderr, "MM_dac test passed.\n");
+        }
+        free(Cs);
+    // }
 
     free(C);
     free(B);

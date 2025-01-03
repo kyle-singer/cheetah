@@ -517,7 +517,7 @@ int main(int argc, char **argv) {
     int success, help, check;
 
     /* standard benchmark options */
-    check = 1;
+    check = 0;
     size = 10000000;
 
     get_options(argc, argv, specifiers, opt_types, &size, &check, &help);
@@ -539,17 +539,19 @@ int main(int argc, char **argv) {
     }
     print_runtime(elapsed, TIMING_COUNT);
 
-    printf("Now check result ... \n");
+    // if(check) {
+        printf("Now check result ... \n");
 
-    success = 1;
-    for (i = 0; i < size; ++i)
-        if (array[i] != i)
-            success = 0;
+        success = 1;
+        for (i = 0; i < size; ++i)
+            if (array[i] != i)
+                success = 0;
 
-    if(!success)
-        printf("SORTING FAILURE!");
-    else 
-        printf("Sorting successful.");
+        if(!success)
+            printf("SORTING FAILURE!");
+        else 
+            printf("Sorting successful.");
+    // }
 
     printf("\nCilk Example: cilksort\n");
     printf("options: number of elements = %ld\n\n", size);

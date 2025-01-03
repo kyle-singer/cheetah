@@ -21,7 +21,7 @@ static inline Closure *Closure_get_right_sib(Closure *closure) {
 }
 
 static inline void Closure_clean(__cilkrts_worker *const w, Closure *t) {
-    printf("cleaning closure   %p    worker   %d\n", t, w->self);
+    //printf("cleaning closure   %p    worker   %d\n", t, w->self);
     atomic_store_explicit(&t->join_counter, 0, memory_order_seq_cst);
     t->has_cilk_callee = false;
     t->spawn_parent = NULL;
@@ -57,7 +57,7 @@ static inline void Closure_clean(__cilkrts_worker *const w, Closure *t) {
 
 static inline stack_ptr pack_free_list_node(uint64_t counter, Closure *closure) {
     if (counter != (counter & 0xFFFFFFFFFFFFULL)) {
-        printf("counter    %d   excpect   %d\n", counter, counter & 0xFFFFFFFFFFFFULL);
+        //printf("counter    %d   excpect   %d\n", counter, counter & 0xFFFFFFFFFFFFULL);
     }
     CILK_ASSERT_G(counter == (counter & 0xFFFFFFFFFFFFULL)); // make sure counter only occupied 48 bits
     return ((stack_ptr)counter << 64) | (uintptr_t)closure;
@@ -179,7 +179,7 @@ decrement_join_counter_and_fetch(__cilkrts_worker *w, Closure *closure, int *new
     do {
         int32_t join_counter;
         bool hit_sync;
-        printf("trying decrement join counter   %p      w   %d\n", closure, w->self);
+        //printf("trying decrement join counter   %p      w   %d\n", closure, w->self);
         // Prepare the new value
         unpack_join_counter(old_value, &join_counter, &hit_sync);
         new_value = pack_join_counter(join_counter - 1, hit_sync);
@@ -203,7 +203,7 @@ increment_join_counter(__cilkrts_worker *w, Closure *closure) {
         bool hit_sync;
         // Prepare the new value
         unpack_join_counter(old_value, &join_counter, &hit_sync);
-        printf("trying increment join counter   %p      w   %d    counter   %d\n", closure, w->self, join_counter);
+        //printf("trying increment join counter   %p      w   %d    counter   %d\n", closure, w->self, join_counter);
         new_value = pack_join_counter(join_counter + 1, hit_sync);
 
         // Attempt to update atomically
@@ -236,7 +236,7 @@ update_closure(__cilkrts_worker *w, Closure * closure) {
 
     // Loop to retry if compare-and-swap fails
     do {
-        printf("updating closure for worker     %d    closure %p\n", w->self, closure);
+        //printf("updating closure for worker     %d    closure %p\n", w->self, closure);
         old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
         exc = unpack_exc(old_value);
 
@@ -263,7 +263,7 @@ fetch_and_update_closure(__cilkrts_worker *w, Closure * new_closure) {
 
     // Loop to retry if compare-and-swap fails
     do {
-        printf("fetch updating closure for worker     %d  closure     %p\n", w->self, new_closure);
+        //printf("fetch updating closure for worker     %d  closure     %p\n", w->self, new_closure);
         old_value = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
         exc = unpack_exc(old_value);
         closure = unpack_closure(old_value);
@@ -280,7 +280,7 @@ fetch_and_update_closure(__cilkrts_worker *w, Closure * new_closure) {
 
 static inline __attribute((always_inline)) bool
 fetch_and_update_closure_abort(__cilkrts_worker *w, Closure * new_closure, Closure *old_closure, double_ptr* fetch) {
-    printf("fetch updating closure abort for worker     %d   closure    %p\n", w->self, new_closure);
+    //printf("fetch updating closure abort for worker     %d   closure    %p\n", w->self, new_closure);
     *fetch = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
     __cilkrts_stack_frame **exc = unpack_exc(*fetch);
     *fetch = pack_pointers(exc, (Closure *)NULL);
@@ -291,7 +291,7 @@ fetch_and_update_closure_abort(__cilkrts_worker *w, Closure * new_closure, Closu
 
 static inline __attribute((always_inline)) bool
 update_closure_expected_abort(__cilkrts_worker *w, __cilkrts_stack_frame** old_exc, Closure* new_closure, double_ptr* fetch) {
-    printf("updating closure expected abort for worker     %d   old_exc     %p   new closure    %p     old closure  %p\n", w->self, old_exc, new_closure, unpack_closure(*fetch));
+    //printf("updating closure expected abort for worker     %d   old_exc     %p   new closure    %p     old closure  %p\n", w->self, old_exc, new_closure, unpack_closure(*fetch));
     double_ptr new_value = pack_pointers(old_exc, new_closure);
 
     return atomic_compare_exchange_strong(&w->exc_closure, fetch, new_value);
@@ -364,7 +364,7 @@ static inline void Closure_checkmagic(__cilkrts_worker *const w, Closure *t) {
 static inline void Closure_change_status(__cilkrts_worker *const w, Closure *t,
                                          enum ClosureStatus old,
                                          enum ClosureStatus status) {
-    printf("w   %d      closure status actually     %s\n", w->self, Closure_status_to_str(t->status));
+    //printf("w   %d      closure status actually     %s\n", w->self, Closure_status_to_str(t->status));
     CILK_ASSERT(w, t->status == old);
     t->status = status;
 }
@@ -441,7 +441,7 @@ static inline void Closure_init(Closure *t, __cilkrts_stack_frame *frame) {
     atomic_store_explicit(&t->join_counter, 0, memory_order_seq_cst);
 
     t->frame = frame;
-    printf("null fiber for closure  %p\n", t);
+    //printf("null fiber for closure  %p\n", t);
     t->fiber_child = NULL;
     t->ext_fiber_child = NULL;
 
@@ -476,7 +476,7 @@ static inline Closure *Closure_create(__cilkrts_worker *const w,
     Closure *init_val = (Closure *)NULL;
 
     if (atomic_compare_exchange_strong(&new_closure->stack_top, &init_val, closure_owner->closure_stack_head)) {
-        printf("create closure  %p      worker  %d      closure_owner   %d\n", new_closure, w->self, closure_owner->self);
+        //printf("create closure  %p      worker  %d      closure_owner   %d\n", new_closure, w->self, closure_owner->self);
         CILK_ASSERT(w, new_closure->status == CLOSURE_PRE_INVALID);
         new_closure->stack_top = closure_owner->closure_stack_head;
         Closure_init(new_closure, sf);
@@ -486,7 +486,7 @@ static inline Closure *Closure_create(__cilkrts_worker *const w,
         return new_closure;
     } else {
         // another thief did init
-        printf("w    %d      another thief created closure    %p\n", w->self, new_closure);
+        //printf("w    %d      another thief created closure    %p\n", w->self, new_closure);
         return new_closure;
     }
     
@@ -505,7 +505,7 @@ static inline void Closure_set_frame(__cilkrts_worker *w,
                                      Closure *cl,
                                       __cilkrts_stack_frame *sf) {
     CILK_ASSERT(w, !cl->frame);
-    printf("setting frame   %p      closure   %p    worker  %d\n", sf, cl, w->self);
+    //printf("setting frame   %p      closure   %p    worker  %d\n", sf, cl, w->self);
     cl->frame = sf;
 }
 
@@ -537,7 +537,7 @@ static void increment_free_list_size(__cilkrts_worker *w) {
         // atomic_compare_exchange_strong returns true if the update was successful
     } while (!atomic_compare_exchange_strong(&w->g->free_list_size, &free_list_size, new_value));
 
-    printf("worker   %d   incremented free list size to   %d\n", w->self, new_value);
+    //printf("worker   %d   incremented free list size to   %d\n", w->self, new_value);
 }
 
 static void decrement_free_list_size(__cilkrts_worker *w) {
@@ -552,7 +552,7 @@ static void decrement_free_list_size(__cilkrts_worker *w) {
         // atomic_compare_exchange_strong returns true if the update was successful
     } while (!atomic_compare_exchange_strong(&w->g->free_list_size, &free_list_size, new_value));
 
-    printf("worker   %d   decremented free list size to   %d\n", w->self, new_value);
+    //printf("worker   %d   decremented free list size to   %d\n", w->self, new_value);
 
     // CILK_ASSERT(w, new_value >= 0);
     
@@ -588,11 +588,11 @@ static bool global_stack_push(struct __cilkrts_worker *const w, Closure *t) {
     CILK_ASSERT(w, t->free_list_next == NULL);
 
     while (true) {
-        printf("global freeing closure     %p    worker    %d\n", t, w->self);
+        //printf("global freeing closure     %p    worker    %d\n", t, w->self);
         // if second try, cur_tail already got updated on failed CAS stodo
         stamped_recent_closure = atomic_load_explicit(&w->g->free_list_top, memory_order_seq_cst);
         unpack_free_list_top(stamped_recent_closure, &index, &counter, &recent_closure);
-        printf("push to global stack list   index   %d   counter   %d   head   %p   w  %d\n", index, counter, recent_closure, w->self);
+        //printf("push to global stack list   index   %d   counter   %d   head   %p   w  %d\n", index, counter, recent_closure, w->self);
         // CILK_ASSERT(w, cur_head); // we use a dummy node to keep this non-null
 
         // help previous modification
@@ -607,7 +607,7 @@ static bool global_stack_push(struct __cilkrts_worker *const w, Closure *t) {
         Closure *new_closure;
         unpack_free_list_node(above_top, &new_counter, &new_closure);
         if (atomic_compare_exchange_strong_explicit(&w->g->free_list_top, &stamped_recent_closure, pack_free_list_top(index + 1, new_counter + 1, t), memory_order_seq_cst, memory_order_seq_cst)) {
-            printf("linking new closure  worker   %d    closure   %p   new_ind   %d prev was    %p\n", w->self, t, index + 1, recent_closure);
+            //printf("linking new closure  worker   %d    closure   %p   new_ind   %d prev was    %p\n", w->self, t, index + 1, recent_closure);
             return true;
         }
     } 
@@ -618,7 +618,7 @@ static void Closure_stack_free(struct __cilkrts_worker *const w,
                                 
     CILK_ASSERT(w, t == t->stack_top);
     if (w->closure_stack_head == t) {
-        printf("resetting stack tail free   worker  %d\n", w->self);
+        //printf("resetting stack tail free   worker  %d\n", w->self);
         w->closure_stack_head = NULL;
         atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_seq_cst);
     }
@@ -628,20 +628,20 @@ static void Closure_stack_free(struct __cilkrts_worker *const w,
     // CILK_ASSERT(w, !atomic_load_explicit(&t->free_list_next, memory_order_seq_cst));
 
     if (w->free_list_head == NULL) {
-        printf("worker local free   closure   %p    w    %d  was null\n", t, w->self);
+        //printf("worker local free   closure   %p    w    %d  was null\n", t, w->self);
         w->free_list_head = t;
         w->free_list_head->free_list_next = NULL;
         w->local_free_list_size += 1;
     } else {
         if (w->local_free_list_size > 10) {
-            printf("global free   closure  %p   w   %d\n", t, w->self);
+            //printf("global free   closure  %p   w   %d\n", t, w->self);
             bool success = global_stack_push(w, t);
             if (success) {
                 return;
             }
         }
         // global stack full, add to local stack
-        printf("worker local free   closure   %p   w    %d\n", t, w->self);
+        //printf("worker local free   closure   %p   w    %d\n", t, w->self);
         Closure *old_head = w->free_list_head;
         t->free_list_next = old_head;
         w->free_list_head = t;
@@ -659,6 +659,7 @@ static inline void Closure_clean_root(Closure *t) {
     t->left_sib = NULL;
     t->left_most_fiber = NULL;
     t->status = CLOSURE_RUNNING;
+    t->fiber_child = NULL;
     // atomic_store_explicit(&t->free_list_next, NULL, memory_order_seq_cst);
     // sanity checks
     CILK_ASSERT_G(t->left_sib == (Closure *)NULL);
@@ -672,12 +673,12 @@ static inline void Closure_clean_root(Closure *t) {
 
 static inline void Closure_reset_children(__cilkrts_worker *const w, worker_id self, Closure *parent) {
     Closure *next_child = atomic_load_explicit(&parent->right_most_child, memory_order_seq_cst);
-    printf("w   %d  resetting children     parent  %p   right most child was   %p\n", w->self, parent, next_child);
+    //printf("w   %d  resetting children     parent  %p   right most child was   %p\n", w->self, parent, next_child);
     Closure *orig = next_child;
     bool reached_end = false;
 
     if (next_child == NULL) {
-        printf("no children\n");
+        //printf("no children\n");
         // no siblings
         return;
     }
@@ -686,22 +687,22 @@ static inline void Closure_reset_children(__cilkrts_worker *const w, worker_id s
     uintptr_t new_value;
     Closure *prev_child = next_child;
     hyper_table *active_ht = NULL;
-    printf("restting children    w   %d    child    %p     parent    %p\n", w->self, prev_child, parent);
+    // printf("restting children    w   %d    child    %p     parent    %p\n", w->self, prev_child, parent);
     while (Closure_is_removed(w, self, old_value)) {
         // must have left_sib pointer by the time you sync
         next_child = next_child->left_sib;
 
         if (prev_child->right_ht) {
-            printf("merging hashtables child     %p     parent   %p\n", prev_child, parent);
+            // printf("merging hashtables child     %p     parent   %p\n", prev_child, parent);
             active_ht = merge_two_hts(w, prev_child->right_ht, active_ht);
             prev_child->right_ht = NULL; // no more children returning at this point
         }
 
         Closure_clean(w, prev_child);
-        printf("unlinking child     %p\n", prev_child);
+        //printf("unlinking child     %p\n", prev_child);
 
         if (prev_child == prev_child->stack_top) {
-            printf("freeing child stack   %p\n", prev_child);
+            //printf("freeing child stack   %p\n", prev_child);
             Closure_stack_free(w, prev_child);
         }
 
@@ -714,10 +715,10 @@ static inline void Closure_reset_children(__cilkrts_worker *const w, worker_id s
         old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
     }
 
-    printf("non removed child is    %p    worker    %d\n", next_child, w->self);
+    //printf("non removed child is    %p    worker    %d\n", next_child, w->self);
 
     bool is_removed = atomic_compare_exchange_strong(&parent->right_most_child, &orig, NULL);
-    printf("right most child was actually    %p  worker   %d\n", orig, w->self);
+    //printf("right most child was actually    %p  worker   %d\n", orig, w->self);
     CILK_ASSERT(w, is_removed);
     CILK_ASSERT(w, reached_end);
 
@@ -756,7 +757,7 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
     // update right most child first
     // need a loop because it may be returning / deleted / cleaned up by other siblings
     do {
-        printf("w   %d  adding child    %p      parent  %p\n", w->self, child, parent);
+        //printf("w   %d  adding child    %p      parent  %p\n", w->self, child, parent);
         next_child = atomic_load_explicit(&parent->right_most_child, memory_order_seq_cst);
 
         // Attempt to update atomically
@@ -771,18 +772,25 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
     uintptr_t old_value = atomic_load_explicit(&next_child->right_sib_removed, memory_order_seq_cst);
     uintptr_t new_value;
     Closure *prev_child = next_child;
+    hyper_table *active_ht = NULL;
     // Loop to retry if compare-and-swap fails
     do {
         bool is_last = false;
-        printf("adding right sibling  worker   %d   right child   %p    sib   %p\n", w->self, child, old_value);
+        //printf("adding right sibling  worker   %d   right child   %p    sib   %p\n", w->self, child, old_value);
 
         while (Closure_is_removed(w, self, old_value)) {
-            printf("removed child   worker   %d\n", w->self);
+            //printf("removed child   worker   %d\n", w->self);
             next_child = next_child->left_sib; // must have left_sib pointer by the time you set remove bit
+
+            if (prev_child->right_ht != NULL) {
+                active_ht = merge_two_hts(w, prev_child->right_ht, active_ht);
+                prev_child->right_ht = NULL;
+            }
+
             Closure_clean(w, prev_child);
 
             if (prev_child == prev_child->stack_top) {
-                printf("freeing child stack   %p\n", prev_child);
+                //printf("freeing child stack   %p\n", prev_child);
                 Closure_stack_free(w, prev_child);
             }
             
@@ -796,6 +804,16 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
 
         if (is_last) {
             // no sibling pointers to update
+            // no right siblings of this closure can be added until this parent is finished
+            hyper_table *right_ht;
+            hyper_table *new_ht;
+            do {
+                right_ht = atomic_load_explicit(&child->right_ht, memory_order_seq_cst);
+                new_ht = merge_two_hts(w, active_ht, right_ht);
+
+            } while (!atomic_compare_exchange_strong(&child->right_ht, &right_ht, new_ht));
+
+            // child->right_ht = merge_two_hts(w, active_ht, child->right_ht);
             return;
         }
         CILK_ASSERT(w, !Closure_is_removed(w, self, old_value));
@@ -809,7 +827,17 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
         // atomic_compare_exchange_strong returns true if the update was successful
     } while (!atomic_compare_exchange_strong(&next_child->right_sib_removed, &old_value, new_value));
 
-    printf("adding left sib    %p   for child   %p\n", next_child, child);
+    //printf("adding left sib    %p   for child   %p\n", next_child, child);
+
+    hyper_table *right_ht;
+    hyper_table *new_ht;
+    do {
+        right_ht = atomic_load_explicit(&child->right_ht, memory_order_seq_cst);
+        new_ht = merge_two_hts(w, active_ht, right_ht);
+
+    } while (!atomic_compare_exchange_strong(&child->right_ht, &right_ht, new_ht));
+
+    // child->right_ht =  merge_two_hts(w, active_ht, child->right_ht);
     child->left_sib = next_child;
 }
 
@@ -847,7 +875,7 @@ void Closure_add_child(__cilkrts_worker *const w, worker_id self, Closure *paren
 //                           Closure *child) {
 //     CILK_ASSERT(w, child);
 //     CILK_ASSERT(w, parent == child->spawn_parent);
-//     printf("w   %d  removing child    %p      parent  %p\n", w->self, child, parent);
+//     //printf("w   %d  removing child    %p      parent  %p\n", w->self, child, parent);
 
 //     // Closure_assert_ownership(w, self, parent);
 //     // Closure_assert_ownership(w, self, child);
@@ -870,7 +898,7 @@ static inline void Closure_mark_child_remove(__cilkrts_worker *const w, worker_i
 
     // Loop to retry if compare-and-swap fails
     do {
-        printf("marking child for removal     %d    closure  %p   parent  %p\n", w->self, child, child->spawn_parent);
+        //printf("marking child for removal     %d    closure  %p   parent  %p\n", w->self, child, child->spawn_parent);
         old_value = atomic_load_explicit(&child->right_sib_removed, memory_order_seq_cst);
         CILK_ASSERT(w, !Closure_is_removed(w, self, old_value));
 
@@ -910,7 +938,7 @@ void Closure_add_callee(__cilkrts_worker *const w, Closure *caller,
     // ANGE: instead of checking has_cilk_callee, we just check if callee is
     // NULL, because we might have set the has_cilk_callee in
     // Closure_add_tmp_callee to prevent the closure from being resumed.
-    printf("adding callee   worker  %d   caller   %p    callee    %p\n", w->self, caller, callee);
+    //printf("adding callee   worker  %d   caller   %p    callee    %p\n", w->self, caller, callee);
     CILK_ASSERT(w, caller->callee == NULL);
     CILK_ASSERT(w, callee->spawn_parent == NULL);
     CILK_ASSERT(w, (callee->frame->flags & CILK_FRAME_DETACHED) == 0);
@@ -949,7 +977,7 @@ static inline void Closure_suspend_victim(__cilkrts_worker *thief,
                            cl->call_parent || (cl - 1)->stack_top || cl == cl->stack_top);
     // worst case, check cl - 1 is a valid address
 
-    printf("thief   %d      suspend victim %d   closure  %p\n", thief_id, victim_id, cl);
+    //printf("thief   %d      suspend victim %d   closure  %p\n", thief_id, victim_id, cl);
     Closure_change_status(thief, cl, CLOSURE_RUNNING, CLOSURE_SUSPENDED);
     CILK_ASSERT(thief, unpack_closure(atomic_load_explicit(&victim->exc_closure, memory_order_seq_cst)) != cl);
 
@@ -989,7 +1017,7 @@ static inline bool Closure_suspend_on_sync(__cilkrts_worker *const w, worker_id 
         Closure_change_status(w, cl, CLOSURE_SYNC, CLOSURE_RUNNING);
         return false;
     }
-    printf("suspend  %d   closure  %p\n", self, cl);
+    //printf("suspend  %d   closure  %p\n", self, cl);
 
      //wont work stodo
     double_ptr fetch = pack_pointers(old_exc, cl);
@@ -998,7 +1026,7 @@ static inline bool Closure_suspend_on_sync(__cilkrts_worker *const w, worker_id 
     // STODO do i need to loop
     bool success = update_closure_expected_abort(w, old_exc, (Closure *)NULL, &fetch);
     if (!success) {
-        printf("closure was actually   %p    exc was   %p    worker   %d\n", unpack_closure(fetch), unpack_exc(fetch), w->self);
+        //printf("closure was actually   %p    exc was   %p    worker   %d\n", unpack_closure(fetch), unpack_exc(fetch), w->self);
         CILK_ASSERT(w, false);
     }
     return true;
@@ -1024,12 +1052,12 @@ static inline void Closure_destroy(struct __cilkrts_worker *const w,
     t->status = CLOSURE_RUNNING;    // reset to default state for reuse
     Closure_clean(w, t);
     if (t == t->stack_top) {
-        printf("freeing pool stack     %p    era   %d     worker    %d\n", t, t->free_list_era, w->self);
+        //printf("freeing pool stack     %p    era   %d     worker    %d\n", t, t->free_list_era, w->self);
         Closure_stack_free(w, t);
         // free(t);
         // w->closure_stack_head = NULL;
     } else {
-        printf("non top offset      %d     closure   %p\n", t - t->stack_top, t);
+        //printf("non top offset      %d     closure   %p\n", t - t->stack_top, t);
         CILK_ASSERT(w, t->status == CLOSURE_RUNNING);
         // t->stack_top = NULL;
         // t->stack_offset = 0;
@@ -1047,7 +1075,7 @@ static inline void Closure_destroy_global(struct global_state *const g,
     Closure_clean_root(t);
 
     CILK_ASSERT_G(t == t->stack_top);
-    printf("freeing stack global      %p\n", t);
+    //printf("freeing stack global      %p\n", t);
     free(t);
     // stodo check double free
     // dont free here because double free will occur

@@ -129,7 +129,7 @@ static void parse_rts_environment(global_state *g) {
         if (0 == err) {
             // Get the number of available cores (copied from os-unix.c)
             available_cores = CPU_COUNT(&process_mask);
-            printf("available_cores %d\n", available_cores);
+            // printf("available_cores %d\n", available_cores);
         }
 #endif
         if (proc_override > 0)
