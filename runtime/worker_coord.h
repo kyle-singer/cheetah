@@ -17,7 +17,7 @@
 
 #include "global.h"
 
-#define USER_USE_FUTEX 0
+#define USER_USE_FUTEX 1
 #ifdef __linux__
 #define USE_FUTEX USER_USE_FUTEX
 #else
@@ -336,7 +336,7 @@ static inline bool thief_should_wait(const uint32_t wake_value) {
 
 // Signal the thief threads to start work-stealing (or terminate, if
 // g->terminate == 1).
-static inline void async_wake_thieves(global_state *const g) {
+static inline void initiate_waking_thieves(global_state *const g) {
 #if USE_FUTEX
     atomic_store_explicit(&g->disengaged_thieves_futex, g->nworkers - 1,
                           memory_order_release);
@@ -353,7 +353,7 @@ static inline void async_wake_thieves(global_state *const g) {
 #endif
 }
 
-static inline void deferred_wake_thieves(global_state *const g) {
+static inline void finish_waking_thieves(global_state *const g) {
 #if USE_FUTEX
     long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
                    NULL, NULL, 0);
