@@ -1606,9 +1606,9 @@ void worker_scheduler(__cilkrts_worker *w) {
                 busy_pause();
             }
             const uint32_t local_wake = take_current_wake_value(rts);
-            /*if (local_wake == (nworkers - 1u)) {
+            if (local_wake == (nworkers - 1u)) {
                 finish_waking_thieves(rts);
-            } else */if (thief_should_wait(local_wake)) {
+            } else if (thief_should_wait(local_wake)) {
                 break;
             }
         }
@@ -1661,12 +1661,11 @@ void *scheduler_thread_proc(void *arg) {
             local_wake = thief_wait(rts);
             l->wake_val = local_wake;
             reengage_worker(rts, nworkers, self);
-            finish_waking_thieves(rts);
         }
 
-        //if (local_wake == (rts->nworkers - 1u)) {
-        //    finish_waking_thieves(rts);
-        //}
+        if (local_wake == (rts->nworkers - 1u)) {
+            finish_waking_thieves(rts);
+        }
         CILK_STOP_TIMING(w, INTERVAL_SLEEP_UNCILK);
 
         // Check if we should exit this scheduling function.
