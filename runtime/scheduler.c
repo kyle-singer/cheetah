@@ -1606,10 +1606,10 @@ void worker_scheduler(__cilkrts_worker *w) {
                 busy_pause();
             }
             const uint32_t local_wake = take_current_wake_value(rts);
-            if (local_wake == (nworkers - 1u)) {
-                finish_waking_thieves(rts);
-            } else if (thief_should_wait(local_wake)) {
+            if (thief_should_wait(local_wake)) {
                 break;
+            } else {
+                maybe_finish_waking_thieves(rts, local_wake, nworkers);
             }
         }
     }
@@ -1656,6 +1656,7 @@ void *scheduler_thread_proc(void *arg) {
         // use a condition variable to wait on g->start, because this approach
         // seems to result in better performance.
         uint32_t local_wake = take_current_wake_value(rts);
+
         if (thief_should_wait(local_wake)) {
             disengage_worker(rts, nworkers, self);
             local_wake = thief_wait(rts);
@@ -1663,9 +1664,8 @@ void *scheduler_thread_proc(void *arg) {
             reengage_worker(rts, nworkers, self);
         }
 
-        if (local_wake == (rts->nworkers - 1u)) {
-            finish_waking_thieves(rts);
-        }
+        maybe_finish_waking_thieves(rts, local_wake, nworkers);
+
         CILK_STOP_TIMING(w, INTERVAL_SLEEP_UNCILK);
 
         // Check if we should exit this scheduling function.

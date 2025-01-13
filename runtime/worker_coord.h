@@ -375,4 +375,10 @@ static inline void finish_waking_thieves(global_state *const g) {
 #endif
 }
 
+static inline void maybe_finish_waking_thieves(global_state *const g, uint32_t nworkers, uint32_t local_wake) {
+    if (local_wake == (nworkers - 1u)) {
+        finish_waking_thieves(g);
+    }
+}
+
 #endif /* _WORKER_COORD_H */
