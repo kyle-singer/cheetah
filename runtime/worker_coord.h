@@ -342,13 +342,11 @@ static inline void initiate_waking_thieves(global_state *const g) {
                           memory_order_relaxed);
 
     atomic_thread_fence(memory_order_seq_cst);
-    if (GET_DISENGAGED(atomic_load_explicit(&g->disengaged_sentinel, memory_order_relaxed)) == g->nworkers - 1) {
-        long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
-                        NULL, NULL, 0);
+    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
+                    NULL, NULL, 0);
 
-        if (s == -1)
-            errExit("futex-FUTEX_WAKE");
-    }
+    if (s == -1)
+        errExit("futex-FUTEX_WAKE");
 
 #else
     pthread_mutex_lock(&g->disengaged_lock);
@@ -364,7 +362,7 @@ static inline void initiate_waking_thieves(global_state *const g) {
 
 static inline void finish_waking_thieves(global_state *const g) {
 #if USE_FUTEX
-    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, INT_MAX,
+    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
                    NULL, NULL, 0);
     if (s == -1)
         errExit("futex-FUTEX_WAKE");
@@ -376,9 +374,9 @@ static inline void finish_waking_thieves(global_state *const g) {
 }
 
 static inline void maybe_finish_waking_thieves(global_state *const g, uint32_t nworkers, uint32_t local_wake) {
-    if (local_wake == (nworkers - 1u)) {
+    //if (local_wake == (nworkers - 1u)) {
         finish_waking_thieves(g);
-    }
+    //}
 }
 
 #endif /* _WORKER_COORD_H */
