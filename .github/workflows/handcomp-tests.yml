@@ -31,7 +31,7 @@ jobs:
       uses: actions/checkout@v4
     - name: Setup OpenCilk compiler
       id: build-opencilk
-      uses: kyle-singer/actions/build-opencilk-project@use-own-ccache-action-repo
+      uses: kyle-singer/opencilk-actions/build-opencilk-project@use-own-ccache-action-repo
       with:
         projects: clang
         os_list: '${{ matrix.os }}'
