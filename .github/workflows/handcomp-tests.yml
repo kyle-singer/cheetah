@@ -43,5 +43,5 @@ jobs:
     - name: make check
       shell: bash
       run:
-        opencilkdir=${{ steps.install-opencilk.outputs.opencilk-builddir }}
+        opencilkdir=${{ steps.build-opencilk.outputs.opencilk-builddir }}
         COMPILER_BASE=$opencilkdir/bin/ make -C handcomp_test check
