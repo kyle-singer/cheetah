@@ -35,7 +35,7 @@ jobs:
         projects: clang
         os_list: '${{ matrix.os }}'
   handcomp_test:
-    needs: [ compile ]
+    needs: compile
     runs-on: ${{ matrix.os }}
     container:
       image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
@@ -58,7 +58,7 @@ jobs:
         opencilkdir=${{ steps.build-opencilk.outputs.opencilk-builddir }}
         COMPILER_BASE=$opencilkdir/bin/ make -C handcomp_test check
   small-apps:
-    needs: [ compile ]
+    needs: compile
     runs-on: ${{ matrix.os }}
     container:
       image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
