@@ -21,6 +21,7 @@ jobs:
       image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
       volumes:
         - /mnt/:/mnt/
+        - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
       options: --user root
     strategy:
       fail-fast: false
@@ -46,6 +47,7 @@ jobs:
       image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
       volumes:
         - /mnt/:/mnt/
+        - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
       options: --user root
     strategy:
       fail-fast: false
@@ -55,12 +57,12 @@ jobs:
     - name: make
       shell: bash
       run: |
-        opencilkdir=${{ steps.build-opencilk.outputs.opencilk-builddir }}
+        opencilkdir=${{ needs.compile.outputs.opencilk-builddir }}
         COMPILER_BASE=$opencilkdir/bin/ make
     - name: make check
       shell: bash
       run:
-        opencilkdir=${{ steps.build-opencilk.outputs.opencilk-builddir }}
+        opencilkdir=${{ needs.compile.outputs.opencilk-builddir }}
         COMPILER_BASE=$opencilkdir/bin/ make -C handcomp_test check
   small-apps:
     needs: compile
@@ -69,6 +71,7 @@ jobs:
       image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
       volumes:
         - /mnt/:/mnt/
+        - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
       options: --user root
     strategy:
       fail-fast: false
