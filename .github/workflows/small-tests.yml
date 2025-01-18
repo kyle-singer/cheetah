@@ -26,6 +26,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-13, macOS-latest]
+    outputs:
+      opencilk-builddir: ${{ steps.build-opencilk.outputs.opencilk-builddir }}
+      opencilk-installdir: ${{ steps.build-opencilk.outputs.opencilk-installdir }}
     steps:
     - name: checkout
       uses: actions/checkout@v4
@@ -77,7 +80,7 @@ jobs:
       shell: bash
       run: |
         builddir="$(pwd)"/build
-        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-builddir }}'
+        opencilkdir='${{ needs.compile.outputs.opencilk-builddir }}'
         mkdir -p $builddir
         cmake -G Ninja \
               -B "$builddir" \
@@ -95,7 +98,7 @@ jobs:
       shell: bash
       run: |
         cheetahdir="$(pwd)"/build
-        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-builddir }}'
+        opencilkdir='${{ needs.compile.outputs.opencilk-builddir }}'
         make_prefix=""
         if [ "${{ runner.os }}" == "macOS" ]; then
           # Use xcrun to build benchmarks on macOS.
