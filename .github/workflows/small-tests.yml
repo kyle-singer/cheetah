@@ -1,4 +1,4 @@
-name: Small Cilk application tests
+name: Hand-compiled and small Cilk application tests
 
 permissions:
   contents: read
@@ -15,17 +15,21 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
-  small-apps:
+  compile:
     runs-on: ${{ matrix.os }}
     container:
       image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
       volumes:
         - /mnt/:/mnt/
+        - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
       options: --user root
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-13, macOS-latest]
+    outputs:
+      opencilk-builddir: ${{ steps.build-opencilk.outputs.opencilk-builddir }}
+      opencilk-installdir: ${{ steps.build-opencilk.outputs.opencilk-installdir }}
     steps:
     - name: checkout
       uses: actions/checkout@v4
@@ -35,12 +39,51 @@ jobs:
       with:
         projects: clang
         os_list: '${{ matrix.os }}'
+        extra_cmake_args: -DLLVM_TARGETS_TO_BUILD=host
+  handcomp_test:
+    needs: compile
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
+      volumes:
+        - /mnt/:/mnt/
+        - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+    - name: make
+      shell: bash
+      run: |
+        opencilkdir=${{ needs.compile.outputs.opencilk-builddir }}
+        COMPILER_BASE=$opencilkdir/bin/ make
+    - name: make check
+      shell: bash
+      run:
+        opencilkdir=${{ needs.compile.outputs.opencilk-builddir }}
+        COMPILER_BASE=$opencilkdir/bin/ make -C handcomp_test check
+  small-apps:
+    needs: compile
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
+      volumes:
+        - /mnt/:/mnt/
+        - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macOS-13, macOS-latest]
+    steps:
     - name: Build cheetah
       id: build-cheetah
       shell: bash
       run: |
         builddir="$(pwd)"/build
-        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-builddir }}'
+        opencilkdir='${{ needs.compile.outputs.opencilk-builddir }}'
         mkdir -p $builddir
         cmake -G Ninja \
               -B "$builddir" \
@@ -58,7 +101,7 @@ jobs:
       shell: bash
       run: |
         cheetahdir="$(pwd)"/build
-        opencilkdir='${{ steps.build-opencilk.outputs.opencilk-builddir }}'
+        opencilkdir='${{ needs.compile.outputs.opencilk-builddir }}'
         make_prefix=""
         if [ "${{ runner.os }}" == "macOS" ]; then
           # Use xcrun to build benchmarks on macOS.
