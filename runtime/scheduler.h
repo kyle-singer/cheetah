@@ -20,7 +20,7 @@ void Cilk_set_return(__cilkrts_worker *const ws);
 void Cilk_exception_handler(__cilkrts_worker *w, char *exn);
 
 CHEETAH_INTERNAL_NORETURN void longjmp_to_runtime(__cilkrts_worker *w);
-CHEETAH_INTERNAL void worker_scheduler(__cilkrts_worker *ws);
+CHEETAH_INTERNAL void worker_scheduler(__cilkrts_worker *ws, unsigned int const initial_done_epoch);
 CHEETAH_INTERNAL void *scheduler_thread_proc(void *arg);
 
 CHEETAH_INTERNAL void promote_own_deque(__cilkrts_worker *w);

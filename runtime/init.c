@@ -548,7 +548,7 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
     set_cilkified(g);
 
     // Set g->done = 0, so Cilk workers will continue trying to steal.
-    atomic_store_explicit(&g->done, 0, memory_order_release);
+    atomic_fetch_add_explicit(&g->done, 1, memory_order_release);
 
     // Wake up the thieves, to allow them to begin work stealing.
     //
@@ -593,7 +593,7 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     // for the start of the next Cilkified region.
     sleep_thieves(g);
 
-    atomic_store_explicit(&g->done, 1, memory_order_release);
+    atomic_fetch_add_explicit(&g->done, 1, memory_order_release);
     /* wake_all_disengaged(g); */
 
     if (!is_boss) {

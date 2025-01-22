@@ -81,7 +81,7 @@ struct global_state {
 
     // These fields are shared among all workers in the work-stealing loop.
 
-    atomic_bool done __attribute__((aligned(CILK_CACHE_LINE)));
+    atomic_uint done __attribute__((aligned(CILK_CACHE_LINE)));
     bool terminate;
     bool root_closure_initialized;
 
