@@ -1438,7 +1438,7 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
     uint32_t curr_done_epoch = initial_done_epoch;
     uint32_t expected_done_epoch = initial_done_epoch;
 
-    while (true) {
+    while (!rts->terminate) {
         while ((curr_done_epoch = atomic_load_explicit(&rts->done, memory_order_acquire)) == expected_done_epoch) {
             /* A worker entering the steal loop must have saved its reducer map into
                the frame to which it belongs. */
@@ -1448,7 +1448,7 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
 
             CILK_STOP_TIMING(w, INTERVAL_SCHED);
 
-            while (!t && !(atomic_load_explicit(&rts->done, memory_order_acquire) & 0b1)) {
+            while (!t && atomic_load_explicit(&rts->done, memory_order_acquire) == expected_done_epoch) {
                 CILK_START_TIMING(w, INTERVAL_SCHED);
                 CILK_START_TIMING(w, INTERVAL_IDLE);
 #if ENABLE_THIEF_SLEEP
@@ -1580,6 +1580,11 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
                     start = gettime_fast();
                 }
 #endif // ENABLE_THIEF_SLEEP
+                if ((curr_done_epoch = atomic_load_explicit(&rts->done, memory_order_acquire)) != expected_done_epoch) {
+                    const uint32_t local_wake = take_current_wake_value(rts);
+                    maybe_finish_waking_thieves(rts, local_wake, nworkers);
+                    expected_done_epoch = curr_done_epoch;
+                }
                 do_what_it_says(deques, w, self, t);
 #if ENABLE_THIEF_SLEEP
                 if (fails > MIN_FAILS) {
