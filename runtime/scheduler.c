@@ -1395,10 +1395,10 @@ void do_what_it_says_boss(__cilkrts_worker *w, Closure *t) {
 
     CILK_STOP_TIMING(w, INTERVAL_SCHED);
     worker_change_state(w, WORKER_IDLE);
-    worker_scheduler(w, atomic_load_explicit(&w->g->done, memory_order_relaxed));
+    worker_scheduler(w);
 }
 
-void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch) {
+void worker_scheduler(__cilkrts_worker *w) {
     Closure *t = NULL;
     CILK_ASSERT_POINTER_EQUAL(w, __cilkrts_get_tls_worker());
 
@@ -1435,20 +1435,18 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
     __cilkrts_worker **workers = rts->workers;
     ReadyDeque *deques = rts->deques;
 
-    uint32_t curr_done_epoch = initial_done_epoch;
-    uint32_t expected_done_epoch = initial_done_epoch;
 
     while (!rts->terminate) {
-        while ((curr_done_epoch = atomic_load_explicit(&rts->done, memory_order_acquire)) == expected_done_epoch) {
+        while (!atomic_load_explicit(&rts->done, memory_order_acquire)) {
             /* A worker entering the steal loop must have saved its reducer map into
                the frame to which it belongs. */
             CILK_ASSERT(!w->hyper_table ||
-                               (is_boss && (atomic_load_explicit(
-                                               &rts->done, memory_order_acquire) & 0b1)));
+                               (is_boss && !atomic_load_explicit(
+                                               &rts->done, memory_order_acquire)));
 
             CILK_STOP_TIMING(w, INTERVAL_SCHED);
 
-            while (!t && atomic_load_explicit(&rts->done, memory_order_acquire) == expected_done_epoch) {
+            while (!t && !atomic_load_explicit(&rts->done, memory_order_acquire)) {
                 CILK_START_TIMING(w, INTERVAL_SCHED);
                 CILK_START_TIMING(w, INTERVAL_IDLE);
 #if ENABLE_THIEF_SLEEP
@@ -1610,10 +1608,9 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
             // region is started soon.
             unsigned int busy_fail = 0;
             while (busy_fail++ < BUSY_LOOP_SPIN &&
-                   (curr_done_epoch = atomic_load_explicit(&rts->done, memory_order_relaxed)) & 0b1) {
+                    atomic_load_explicit(&rts->done, memory_order_relaxed)) {
                 busy_pause();
             }
-            expected_done_epoch = curr_done_epoch;
 
             const uint32_t local_wake = take_current_wake_value(rts);
             if (thief_should_wait(local_wake)) {
@@ -1685,9 +1682,8 @@ void *scheduler_thread_proc(void *arg) {
         // updated by any operations that occurred outside of Cilkified regions.
         // Such operations, for example might have updated the left-most view of
         // a reducer.
-        unsigned int curr_done_val = 0;
-        if (!((curr_done_val = atomic_load_explicit(&rts->done, memory_order_acquire)) & 0b1)) {
-            worker_scheduler(w, curr_done_val);
+        if (!atomic_load_explicit(&rts->done, memory_order_acquire)) {
+            worker_scheduler(w);
         }
 
         CILK_START_TIMING(w, INTERVAL_SLEEP_UNCILK);
