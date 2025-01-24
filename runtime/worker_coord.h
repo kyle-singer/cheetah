@@ -24,6 +24,8 @@
 #define USE_FUTEX 0
 #endif
 
+static inline void maybe_finish_waking_thieves(global_state *const g, uint32_t local_wake, uint32_t nworkers);
+
 #if USE_FUTEX
 //=========================================================
 // Primitive futex operations.
@@ -259,14 +261,19 @@ static inline uint32_t thief_disengage_cond_var(_Atomic uint32_t *count,
     }
 }
 #endif
-static inline uint32_t thief_disengage(global_state *g) {
+static uint32_t thief_disengage(global_state *g) {
+    uint32_t wake_val =
 #if USE_FUTEX
-    return thief_disengage_futex(&g->disengaged_thieves_futex);
+        thief_disengage_futex(&g->disengaged_thieves_futex);
 #else
-    return thief_disengage_cond_var(&g->disengaged_thieves_futex,
-                                    &g->disengaged_lock,
-                                    &g->disengaged_cond_var);
+        thief_disengage_cond_var(&g->disengaged_thieves_futex,
+                                 &g->disengaged_lock,
+                                 &g->disengaged_cond_var);
 #endif
+
+    maybe_finish_waking_thieves(g, wake_val, g->nworkers);
+
+    return wake_val;
 }
 
 // Signal to all disengaged thief threads to resume work-stealing.
@@ -332,12 +339,16 @@ static inline uint32_t take_current_wake_value_cv(global_state *const g) {
 #endif
 
 static inline uint32_t take_current_wake_value(global_state *const g) {
-    return
+    uint32_t wake_val =
 #if USE_FUTEX
         take_current_wake_value_futex(&g->disengaged_thieves_futex);
 #else
         take_current_wake_value_cv(g);
 #endif
+
+    maybe_finish_waking_thieves(g, wake_val, g->nworkers);
+
+    return wake_val;
 }
 
 // Called by a thief thread.  Check if the thief should start waiting for the
@@ -361,7 +372,8 @@ static inline void initiate_waking_thieves(global_state *const g) {
         &g->disengaged_sentinel, memory_order_relaxed);
     uint32_t disengaged = GET_DISENGAGED(disengaged_sentinel);
 
-    if (disengaged == g->nworkers - 1u) {
+    // For now, be conservative and wake a worker if any went to sleep.
+    if (disengaged == g->nworkers -1u) {
         long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
                         NULL, NULL, 0);
 

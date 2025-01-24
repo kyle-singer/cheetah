@@ -1580,11 +1580,6 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
                     start = gettime_fast();
                 }
 #endif // ENABLE_THIEF_SLEEP
-                if ((curr_done_epoch = atomic_load_explicit(&rts->done, memory_order_acquire)) != expected_done_epoch) {
-                    const uint32_t local_wake = take_current_wake_value(rts);
-                    maybe_finish_waking_thieves(rts, local_wake, nworkers);
-                    expected_done_epoch = curr_done_epoch;
-                }
                 do_what_it_says(deques, w, self, t);
 #if ENABLE_THIEF_SLEEP
                 if (fails > MIN_FAILS) {
@@ -1623,8 +1618,6 @@ void worker_scheduler(__cilkrts_worker *w, unsigned int const initial_done_epoch
             const uint32_t local_wake = take_current_wake_value(rts);
             if (thief_should_wait(local_wake)) {
                 break;
-            } else {
-                maybe_finish_waking_thieves(rts, local_wake, nworkers);
             }
         }
     }
@@ -1678,8 +1671,6 @@ void *scheduler_thread_proc(void *arg) {
             l->wake_val = local_wake;
             reengage_worker(rts, nworkers, self);
         }
-
-        maybe_finish_waking_thieves(rts, local_wake, nworkers);
 
         CILK_STOP_TIMING(w, INTERVAL_SLEEP_UNCILK);
 
