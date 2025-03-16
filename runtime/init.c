@@ -26,7 +26,6 @@
 #include "global.h"
 #include "init.h"
 #include "local.h"
-#include "readydeque.h"
 #include "sched_stats.h"
 #include "scheduler.h"
 #include "worker_coord.h"
@@ -58,15 +57,6 @@ static void worker_local_destroy(local_state *l, global_state *g) {
     /* currently nothing to do here */
 }
 
-static void deques_init(global_state *g) {
-    cilkrts_alert(BOOT, NULL, "(deques_init) Initializing deques");
-    for (unsigned int i = 0; i < g->options.nproc; i++) {
-        g->deques[i].top = NULL;
-        g->deques[i].bottom = NULL;
-        g->deques[i].mutex_owner = NO_WORKER;
-    }
-}
-
 static void workers_init(global_state *g) {
     cilkrts_alert(BOOT, NULL, "(workers_init) Initializing workers");
     for (unsigned int i = 0; i < g->options.nproc; i++) {
@@ -74,9 +64,8 @@ static void workers_init(global_state *g) {
             // Initialize worker 0, so we always have a worker structure to fall
             // back on.
             __cilkrts_init_tls_worker(0, g);
-
-            atomic_store_explicit(&g->dummy_worker.tail, NULL, memory_order_seq_cst);
-            atomic_store_explicit(&g->dummy_worker.head, NULL, memory_order_seq_cst);
+            atomic_store_explicit(&g->dummy_worker.tail, NULL, memory_order_relaxed);
+            atomic_store_explicit(&g->dummy_worker.exc_closure, 0, memory_order_relaxed);
         } else {
             g->workers[i] = &g->dummy_worker;
         }
@@ -98,11 +87,9 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
         *(struct local_state **)(&w->l) = worker_local_init(&default_worker_local_state, g);
         __cilkrts_set_tls_worker(w);
 
-        // w->closure_stack_head = (struct Closure *)malloc(g->options.deqdepth * sizeof(struct Closure));
-
         w->closure_stack_head = (struct Closure *)calloc(g->options.deqdepth, sizeof(struct Closure));
-        atomic_store_explicit(&w->closure_stack_tail, w->closure_stack_head, memory_order_seq_cst);
-        printf("allocating init stack   %p    worker    %d\n", w->closure_stack_head, w->self);
+        atomic_store_explicit(&w->closure_stack_tail, w->closure_stack_head, memory_order_release);
+        // printf("allocating init stack   %p    worker    %d\n", w->closure_stack_head, w->self);
         for (unsigned int i = 0; i < g->options.deqdepth; i++) {
             w->closure_stack_head[i].stack_top = w->closure_stack_head;
             // Initialize other fields as needed
@@ -118,7 +105,7 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
             worker_local_init(mem + sizeof(__cilkrts_worker), g);
 
         w->closure_stack_head = NULL;
-        atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_seq_cst);
+        atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_release);
     }
     *(worker_id *)(&w->self) = i;
     w->extension = NULL;
@@ -129,11 +116,10 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
         w->l->shadow_stack + g->options.deqdepth;
     g->workers[i] = w;
     __cilkrts_stack_frame **init = w->l->shadow_stack + 1;
-    atomic_store_explicit(&w->tail, init, memory_order_seq_cst);
-    // atomic_store_explicit(&w->head, init, memory_order_seq_cst);
-    // atomic_store_explicit(&w->exc, init, memory_order_seq_cst);
-    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_seq_cst);
+    atomic_store_explicit(&w->tail, init, memory_order_release);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_release);
     w->free_list_head = NULL;
+    w->stack_bitmask = g->options.deqdepth - 1;
 
     if (i != 0) {
         w->hyper_table = NULL;
@@ -283,9 +269,9 @@ static void threads_init(global_state *g) {
 }
 
 static void closure_stacks_init(global_state *g) {
-    g->free_list = calloc(1000, sizeof(_Atomic(stack_ptr)));
+    g->free_list = calloc(300, sizeof(_Atomic(stack_ptr)));
     g->free_list[0] = pack_free_list_node(1, NULL);
-    atomic_store_explicit(&g->free_list_top, pack_free_list_top(0, 1, NULL), memory_order_seq_cst);
+    atomic_store_explicit(&g->free_list_top, pack_free_list_top(0, 1, NULL), memory_order_release);
 }
 
 global_state *__cilkrts_startup(int argc, char *argv[]) {
@@ -293,7 +279,6 @@ global_state *__cilkrts_startup(int argc, char *argv[]) {
     global_state *g = global_state_init(argc, argv);
     closure_stacks_init(g);
     workers_init(g);
-    deques_init(g);
     CILK_ASSERT_G(0 == g->exiting_worker);
 
     // Create the root closure and a fiber to go with it.  Use worker 0 to
@@ -301,8 +286,9 @@ global_state *__cilkrts_startup(int argc, char *argv[]) {
     __cilkrts_worker *w0 = g->workers[0];
     //printf("root\n");
     Closure *t = w0->closure_stack_head;
-    atomic_store_explicit(&w0->closure_stack_tail, w0->closure_stack_head + 1, memory_order_seq_cst);
-    w0->closure_stack_tail->spawn_parent = w0->closure_stack_head;
+    (t + 1)->spawn_parent = t;
+    atomic_store_explicit(&w0->closure_stack_tail, t + 1, memory_order_release);
+    // w0->closure_stack_tail->spawn_parent = w0->closure_stack_head;
     struct cilk_fiber *fiber = cilk_fiber_allocate(w0, g->options.stacksize);
     w0->fiber = fiber;
     g->root_closure = t;
@@ -336,7 +322,7 @@ static void __cilkrts_start_workers(global_state *g) {
 // Stop the Cilk workers in g, for example, by joining their underlying Pthreads.
 static void __cilkrts_stop_workers(global_state *g) {
     /* CILK_ASSERT_G( */
-    /*     !atomic_load_explicit(&g->start_thieves, memory_order_acquire)); */
+    /*     !atomic_load_explicit(&g->start_thieves, memory_order_seq_cst)); */
 
     // Set g->start and g->terminate, to allow the workers to exit their
     // outermost scheduling loop.
@@ -483,7 +469,7 @@ void __cilkrts_internal_invoke_cilkified_root(__cilkrts_stack_frame *sf) {
 
     /* reset_disengaged_var(g); */
     if (__builtin_expect(
-            atomic_load_explicit(&g->cilkified, memory_order_seq_cst), false)) {
+            atomic_load_explicit(&g->cilkified, memory_order_relaxed), false)) {
         cilkrts_bug(
             NULL,
             "ERROR: OpenCilk runtime already executing a Cilk computation.\n");
@@ -533,7 +519,6 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     // exiting_worker.
     worker_id self = w->self;
     const bool is_boss = (0 == self);
-    ReadyDeque *deques = g->deques;
 
     // Mark the computation as done.  Also "sleep" the workers: update global
     // flags so workers who exit the work-stealing loop will return to waiting
@@ -570,22 +555,15 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     // Cilkified region to start with an empty deque.  We go ahead and grab the
     // deque lock to make sure no other worker has a lingering pointer to the
     // closure.
-    // deque_lock_self(deques, self);
-    deques[self].bottom = (Closure *)NULL;
-    deques[self].top = (Closure *)NULL;
 
-    // STODO i think should loop because init
-    // __cilkrts_stack_frame **head =
-    //     atomic_load_explicit(&w->head, memory_order_seq_cst);
-    __cilkrts_stack_frame **head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    __cilkrts_stack_frame **head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_acquire));
     __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&w->tail, memory_order_seq_cst);
+        atomic_load_explicit(&w->tail, memory_order_acquire);
     CILK_ASSERT(w, head == tail);
     //printf("exit root worker    %d\n", w->self);
-    update_closure(w, (Closure *)NULL);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(head, (Closure *)NULL), memory_order_release);
 
-    WHEN_CILK_DEBUG(g->root_closure->owner_ready_deque = NO_WORKER);
-    // deque_unlock_self(deques, self);
+    // WHEN_CILK_DEBUG(g->root_closure->owner_ready_deque = NO_WORKER);
 
     // Clear the flags in sf.  This routine runs before leave_frame in a Cilk
     // function, but leave_frame is executed conditionally in Cilk functions
@@ -599,7 +577,7 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
         // We finished the computation on the boss thread.  No need to jump to
         // the runtime in this case; just return normally.
         local_state *l = w->l;
-        atomic_store_explicit(&g->cilkified, 0, memory_order_seq_cst);
+        atomic_store_explicit(&g->cilkified, 0, memory_order_relaxed);
         l->state = WORKER_IDLE;
         __cilkrts_need_to_cilkify = true;
 
@@ -620,17 +598,21 @@ static void closure_stacks_destroy(global_state *g) {
     //printf("freeing up closure stacks\n");
     Closure *closure;
     uint64_t counter;
-    int index;
-    stack_top_ptr top = atomic_load_explicit(&g->free_list_top, memory_order_seq_cst);
+    __uint16_t index;
+    stack_top_ptr top = atomic_load_explicit(&g->free_list_top, memory_order_acquire);
     unpack_free_list_top(top, &index, &counter, &closure);
 
     finish_global_stack_update(g, index, counter, closure);
+    int num_freed = 0;
 
     for (int i = index; i > 0; i--) {
         Closure *curr = get_free_list_closure(g->free_list[i]);
-        printf("freeing stack free list   %p   ind  %d\n", curr, i);
+        // printf("freeing stack free list   %p   ind  %d\n", curr, i);
         free(curr);
+        num_freed++;
     }
+    g->num_freed += num_freed;
+    CILK_ASSERT_G(g->num_freed == 0); // stodo check for memory leaks
 }
 
 static void global_state_terminate(global_state *g) {
@@ -661,8 +643,6 @@ static void global_state_deinit(global_state *g) {
     free(g->workers);
     g->workers = NULL;
     g->nworkers = 0;
-    free(g->deques);
-    g->deques = NULL;
     free(g->threads);
     g->threads = NULL;
     free(g->index_to_worker);
@@ -670,13 +650,6 @@ static void global_state_deinit(global_state *g) {
     free(g->worker_to_index);
     g->worker_to_index = NULL;
     free(g);
-}
-
-static void deques_deinit(global_state *g) {
-    cilkrts_alert(BOOT, NULL, "(deques_deinit) Clean up deques");
-    for (unsigned int i = 0; i < g->options.nproc; i++) {
-        // CILK_ASSERT_G(g->deques[i].mutex_owner == NO_WORKER);
-    }
 }
 
 static void worker_terminate(__cilkrts_worker *w, void *data) {
@@ -719,6 +692,8 @@ static void workers_deinit(global_state *g) {
     }
 
     unsigned i = g->options.nproc;
+    int num_freed = 0;
+    int num_alloc = 0;
     while (i-- > 0) {
         __cilkrts_worker *w = g->workers[i];
         g->workers[i] = NULL;
@@ -731,21 +706,24 @@ static void workers_deinit(global_state *g) {
         if (w->closure_stack_head != g->root_closure) {
             // free(w->closure_stack_head);
             w->closure_stack_head = NULL;
-            atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_seq_cst);
+            atomic_store_explicit(&w->closure_stack_tail, NULL, memory_order_release);
         }
 
         Closure *curr = w->free_list_head;
         while (curr != NULL) {
-            printf("freeing stack worker   %p  w   %d\n", curr, w->self);
+            // printf("freeing stack worker   %p  w   %d\n", curr, w->self);
             Closure *next_stack = curr->free_list_next;
             free(curr);
+            num_freed++;
             curr = next_stack; //stodo
         }
+        num_alloc += w->num_alloc;
         
         *(struct local_state **)(&w->l) = NULL;
         if (i != 0)
             free(w);
     }
+    g->num_freed += num_freed - num_alloc;
 
     /* TODO: Export initial reducer map */
 }
@@ -779,7 +757,6 @@ CHEETAH_INTERNAL void __cilkrts_shutdown(global_state *g) {
     // internal-malloc that does not include all the free fibers.
     global_state_terminate(g);
     workers_deinit(g);
-    deques_deinit(g);
     global_state_deinit(g);
 }
 

@@ -30,9 +30,7 @@ __cilkrts_worker default_worker = {.self = 0,
                                    .extension = NULL,
                                    .ext_stack = NULL,
                                    .tail = NULL,
-                                   .exc = NULL,
                                    .exc_closure = 0,
-                                   .head = NULL,
                                    .ltq_limit = NULL};
 CHEETAH_INTERNAL
 local_state default_worker_local_state;
@@ -57,8 +55,8 @@ static global_state *global_state_allocate() {
     cilk_mutex_init(&g->index_lock);
     cilk_mutex_init(&g->print_lock);
 
-    atomic_store_explicit(&g->start_root_worker, 0, memory_order_seq_cst);
-    atomic_store_explicit(&g->cilkified_futex, 0, memory_order_seq_cst);
+    atomic_store_explicit(&g->start_root_worker, 0, memory_order_relaxed);
+    atomic_store_explicit(&g->cilkified_futex, 0, memory_order_relaxed);
 
     // TODO: Convert to cilk_* equivalents
     pthread_mutex_init(&g->cilkified_lock, NULL);
@@ -85,6 +83,15 @@ static void set_deqdepth(global_state *g, unsigned int deqdepth) {
     CILK_ASSERT_G(!g->workers_started);
     CILK_ASSERT_G(deqdepth >= 1);
     CILK_ASSERT_G(deqdepth <= 99999);
+
+    deqdepth--;           
+    deqdepth |= deqdepth >> 1;   
+    deqdepth |= deqdepth >> 2;  
+    deqdepth |= deqdepth >> 4;   
+    deqdepth |= deqdepth >> 8;  
+    deqdepth |= deqdepth >> 16;  
+    deqdepth++;
+
     g->options.deqdepth = deqdepth;
 }
 
@@ -170,9 +177,9 @@ global_state *global_state_init(int argc, char *argv[]) {
 
     g->workers_started = false;
     g->root_closure_initialized = false;
-    atomic_store_explicit(&g->done, 0, memory_order_seq_cst);
-    atomic_store_explicit(&g->cilkified, 0, memory_order_seq_cst);
-    atomic_store_explicit(&g->disengaged_sentinel, 0, memory_order_seq_cst);
+    atomic_store_explicit(&g->done, 0, memory_order_relaxed);
+    atomic_store_explicit(&g->cilkified, 0, memory_order_relaxed);
+    atomic_store_explicit(&g->disengaged_sentinel, 0, memory_order_relaxed);
 
     g->terminate = false;
     g->exiting_worker = 0;
@@ -181,8 +188,6 @@ global_state *global_state_init(int argc, char *argv[]) {
         (struct worker_args *)calloc(active_size, sizeof(struct worker_args));
     g->workers =
         (__cilkrts_worker **)calloc(active_size, sizeof(__cilkrts_worker *));
-    g->deques = (ReadyDeque *)cilk_aligned_alloc(
-        __alignof__(ReadyDeque), active_size * sizeof(ReadyDeque));
     g->threads = (pthread_t *)calloc(active_size, sizeof(pthread_t));
     g->index_to_worker = (worker_id *)calloc(active_size, sizeof(worker_id));
     g->worker_to_index = (worker_id *)calloc(active_size, sizeof(worker_id));

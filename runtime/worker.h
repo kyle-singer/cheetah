@@ -40,6 +40,12 @@ struct __cilkrts_worker {
 
     int local_free_list_size;
 
+    int stack_bitmask;
+
+    int num_alloc;
+
+    struct Closure *return_closure;
+
     // Cache line boundary on 64 bit systems with 64 byte cache lines
 
     // Optional state, only maintained if __cilkrts_use_extension == true.
@@ -52,8 +58,8 @@ struct __cilkrts_worker {
     // H could be moved elsewhere because it is only touched when stealing.
     _Atomic(struct __cilkrts_stack_frame **) tail;
     _Atomic(double_ptr) exc_closure __attribute__((aligned(64)));
-    _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
-    _Atomic(struct __cilkrts_stack_frame **) head __attribute__((aligned(CILK_CACHE_LINE)));
+    // _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
+    // _Atomic(struct __cilkrts_stack_frame **) head __attribute__((aligned(CILK_CACHE_LINE)));
 
     // Limit of the Lazy Task Queue, to detect queue overflow (debug only)
     struct __cilkrts_stack_frame **const ltq_limit;

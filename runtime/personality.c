@@ -17,7 +17,6 @@
 #include "frame.h"
 #include "init.h"
 #include "local-reducer-api.h"
-#include "readydeque.h"
 #include "types.h"
 #include "worker.h"
 
@@ -124,7 +123,6 @@ __attribute__((noinline)) static void
 sync_in_personality(__cilkrts_worker *w, __cilkrts_stack_frame *sf,
                     struct _Unwind_Exception *ue_header) {
     worker_id self = w->self;
-    ReadyDeque *deques = w->g->deques;
     // save floating point state
     sysdep_save_fp_ctrl_state(sf);
 
@@ -133,18 +131,13 @@ sync_in_personality(__cilkrts_worker *w, __cilkrts_stack_frame *sf,
         struct closure_exception *exn_r = get_exception_reducer(w);
         exn_r->exn = (char *)ue_header;
 
-        // deque_lock_self(deques, self);
-        // Closure *t_orig = deque_peek_bottom(deques, w, self, self);
-        Closure *t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+        Closure *t = unpack_closure(atomic_load_explicit(&w->exc_closure, memory_order_acquire));
         // CILK_ASSERT(w, t_orig == t);
         // Closure_lock(w, self, t);
 
         // ensure that we return here after a cilk_sync.
         exn_r->parent_rsp = t->orig_rsp;
         t->orig_rsp = (char *)SP(sf);
-
-        // Closure_unlock(w, self, t);
-        // deque_unlock_self(deques, self);
 
         // save the current fiber for further stack unwinding.
         if (exn_r->throwing_fiber == NULL) {
@@ -188,6 +181,7 @@ resume_from_last_frame(__cilkrts_worker *w, __cilkrts_stack_frame *sf,
                  struct _Unwind_Exception *ue_header) {
     cilkrts_alert(CFRAME, w, "resume_from_last_frame %p", (void *)sf);
     CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
+    CILK_ASSERT(w, false); // STODO support exceptions
     // WHEN_CILK_DEBUG(sf->magic = ~CILK_STACKFRAME_MAGIC);
 
     // Pop this frame off the cactus stack.  This logic used to be in

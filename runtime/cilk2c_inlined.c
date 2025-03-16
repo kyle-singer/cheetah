@@ -111,10 +111,12 @@ __cilkrts_enter_frame(__cilkrts_stack_frame *sf) {
     sf->magic = frame_magic;
 
     struct cilk_fiber *fh = __cilkrts_current_fh;
-    CILK_ASSERT(w, fh);
+    // CILK_ASSERT(w, fh);
+    // CILK_ASSERT(w, fh->current_stack_frame);
     sf->fh = fh;
     sf->call_parent = fh->current_stack_frame;
     fh->current_stack_frame = sf;
+    // printf("entering frame   curr stack frame    %p      worker  %d\n", sf, w->self);
 
     // WHEN_CILK_DEBUG(sf->magic = CILK_STACKFRAME_MAGIC);
 }
@@ -126,16 +128,17 @@ __cilkrts_enter_frame(__cilkrts_stack_frame *sf) {
 __attribute__((always_inline)) void
 __cilkrts_enter_frame_helper(__cilkrts_stack_frame *sf,
                              __cilkrts_stack_frame *parent, bool spawner) {
-    __cilkrts_worker *w = __cilkrts_get_tls_worker();
-    cilkrts_alert(CFRAME, w, "__cilkrts_enter_frame_helper %p", (void *)sf);
+    // STODO port over new alert system
+    // cilkrts_alert(CFRAME, w, "__cilkrts_enter_frame_helper %p", (void *)sf);
 
     sf->flags = 0;
     sf->magic = frame_magic;
 
     struct cilk_fiber *fh = parent->fh;
-    CILK_ASSERT(w, fh);
+    // CILK_ASSERT(w, fh);
     sf->fh = fh;
     if (spawner) {
+        // CILK_ASSERT(w, parent);
         sf->call_parent = parent;
         fh->current_stack_frame = sf;
     }
@@ -161,27 +164,29 @@ __cilkrts_detach(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent) {
 
     CILK_ASSERT(w, CHECK_CILK_FRAME_MAGIC(w->g, sf));
 
-    if (USE_EXTENSION) {
-        __cilkrts_extend_spawn(w, &parent->extension, &w->extension);
-    }
+    // if (USE_EXTENSION) {
+    //     __cilkrts_extend_spawn(w, &parent->extension, &w->extension);
+    // }
 
     sf->flags |= CILK_FRAME_DETACHED;
     struct __cilkrts_stack_frame **tail =
-        atomic_load_explicit(&w->tail, memory_order_seq_cst);
+        atomic_load_explicit(&w->tail, memory_order_relaxed);
     // CILK_ASSERT(w, (tail + 1) < w->ltq_limit);
 
     // store parent at *tail, and then increment tail
-    ptrdiff_t raw_index = tail - w->l->shadow_stack;       // could be >= array length
+    __cilkrts_stack_frame **init = w->l->shadow_stack;
+
+    ptrdiff_t raw_index = tail - init;       // could be >= array length
     CILK_ASSERT(w, raw_index >= 0);
 
-    ptrdiff_t circular_tail = raw_index % w->g->options.deqdepth;
-    CILK_ASSERT(w, (circular_tail + 1 + w->l->shadow_stack) < w->ltq_limit);
+    ptrdiff_t circular_tail = raw_index & w->stack_bitmask;
+    CILK_ASSERT(w, (circular_tail + 1 + init) < w->ltq_limit);
 
-    *(w->l->shadow_stack + circular_tail) = parent;
+    *(init + circular_tail) = parent;
     // *tail++ = parent;
     /* Release ordering ensures the two preceding stores are visible. */
     // printf("increment tail to    %p    worker    %d\n", tail + 1, w->self);
-    atomic_store_explicit(&w->tail, tail + 1, memory_order_seq_cst);
+    atomic_store_explicit(&w->tail, tail + 1, memory_order_release);
 }
 
 __attribute__((always_inline)) void __cilk_sync(__cilkrts_stack_frame *sf) {
@@ -197,10 +202,10 @@ __attribute__((always_inline)) void __cilk_sync(__cilkrts_stack_frame *sf) {
                 }
             }
         }
-        if (USE_EXTENSION) {
-            __cilkrts_worker *w = get_worker_from_stack(sf);
-            __cilkrts_extend_sync(&w->extension);
-        }
+        // if (USE_EXTENSION) {
+        //     __cilkrts_worker *w = get_worker_from_stack(sf);
+        //     __cilkrts_extend_sync(&w->extension);
+        // }
     }
 }
 
@@ -216,10 +221,10 @@ __cilk_sync_nothrow(__cilkrts_stack_frame *sf) {
                 sanitizer_finish_switch_fiber();
             }
         }
-        if (USE_EXTENSION) {
-            __cilkrts_worker *w = get_worker_from_stack(sf);
-            __cilkrts_extend_sync(&w->extension);
-        }
+        // if (USE_EXTENSION) {
+        //     __cilkrts_worker *w = get_worker_from_stack(sf);
+        //     __cilkrts_extend_sync(&w->extension);
+        // }
     }
 }
 
@@ -236,7 +241,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
     // Pop this frame off the cactus stack.  This logic used to be in
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
-    // printf("leaving frame   curr stack frame    %p      worker  %d      was   %p\n", parent, w->self, sf->fh->current_stack_frame);
+    // printf("leaving frame   curr stack frame    %p      worker  %d\n", sf, w->self);
     CILK_ASSERT(w, parent);
     sf->fh->current_stack_frame = parent;
     sf->call_parent = NULL;
@@ -284,41 +289,51 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf,
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
     // printf("leaving frame helper  curr stack frame    %p      worker  %d    was     %p\n", parent, w->self, sf->fh->current_stack_frame);
-    CILK_ASSERT(w, parent);
+    // CILK_ASSERT(w, parent);
     if (spawner)
         sf->fh->current_stack_frame = parent;
-    if (USE_EXTENSION) {
-        __cilkrts_extend_return_from_spawn(w, &w->extension);
-        w->extension = parent->extension;
-    }
+    // if (USE_EXTENSION) {
+    //     __cilkrts_extend_return_from_spawn(w, &w->extension);
+    //     w->extension = parent->extension;
+    // }
     sf->call_parent = NULL;
 
     CILK_ASSERT(w, sf->flags & CILK_FRAME_DETACHED);
 
     __cilkrts_stack_frame **tail =
-            atomic_load_explicit(&w->tail, memory_order_seq_cst);
+            atomic_load_explicit(&w->tail, memory_order_relaxed);
     --tail;
     /* The store of tail must precede the load of exc in global order.  See
        comment in do_dekker_on. */
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-    // __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
-    __cilkrts_stack_frame **head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+    double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+    __cilkrts_stack_frame **head = unpack_exc(exc_closure);
+
+    // __cilkrts_stack_frame **hqead = unpack_exc(exc_closure);
     // printf("w %d    exc_orig %p    exc %p\n", w->self, exc_orig, exc);
     // CILK_ASSERT_POINTER_EQUAL(w, exc_orig, exc);     
     // dont include this assertion except when testing because benign races such as exc_orig having been incremented while
     // new exception pointer has not yet been and exc_orig having been decremented (due to unsuccessful steak) while new exception
     // pointer has not yet been will still fail this assertion
             
-    // __cilkrts_stack_frame **exc =
-    //         atomic_load_explicit(&w->exc, memory_order_seq_cst);
     /* Currently no other modifications of flags are atomic so this one isn't
        either.  If the thief wins it may run in parallel with the clear of
        DETACHED.  Does it modify flags too? */
     sf->flags &= ~CILK_FRAME_DETACHED;
+    
+
     if (__builtin_expect(head >= tail, false)) {
-        Cilk_exception_handler(w, NULL, head, tail);
-        // If Cilk_exception_handler returns this thread won the race and can
-        // return to the parent function.
+        if (head == tail && atomic_compare_exchange_strong_explicit(&w->exc_closure, &exc_closure, pack_pointers(head + 1, unpack_closure(exc_closure)), memory_order_seq_cst, memory_order_relaxed)) {
+            // won the race
+            // stodo should i do tail+1
+            // //printf("w   %d  won the race setting head   closure   %p    exc   %p    tail    %p\n", self, t, old_exc + 1, tail + 1);
+            atomic_store_explicit(&w->tail, tail + 1, memory_order_relaxed);
+        } else {
+            // reset_exc couldve updated
+            Cilk_exception_handler(w, NULL, unpack_exc(exc_closure), tail, unpack_closure(exc_closure));
+            // If Cilk_exception_handler returns this thread won the race and can
+            // return to the parent function.
+        }
     }
 }
 
@@ -353,6 +368,7 @@ __attribute__((always_inline)) void
 __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
                       char *exn, bool spawner) {
     // printf("pausing frame sf    %p\n", sf);
+    CILK_ASSERT_G(false); // STODO support exceptions
     if (0 == __builtin_setjmp(sf->ctx))
         __cilkrts_cleanup_fiber(sf, 1);
 
@@ -372,26 +388,25 @@ __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
     // A __cilkrts_pause_frame may be reached before the spawn-helper frame has
     // detached.  In that case, THE is not required.
     if (sf->flags & CILK_FRAME_DETACHED) {
-        if (USE_EXTENSION) {
-            __cilkrts_extend_return_from_spawn(w, &w->extension);
-            w->extension = parent->extension;
-        }
+        // if (USE_EXTENSION) {
+        //     __cilkrts_extend_return_from_spawn(w, &w->extension);
+        //     w->extension = parent->extension;
+        // }
         __cilkrts_stack_frame **tail =
-            atomic_load_explicit(&w->tail, memory_order_seq_cst);
+            atomic_load_explicit(&w->tail, memory_order_relaxed);
         --tail;
         /* The store of tail must precede the load of exc in global order.
            See comment in do_dekker_on. */
         atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-        // __cilkrts_stack_frame **exc_orig = atomic_load_explicit(&w->exc, memory_order_seq_cst);
-        __cilkrts_stack_frame **head =
-            unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_seq_cst));
+        double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        __cilkrts_stack_frame **head = unpack_exc(exc_closure);
         // CILK_ASSERT(w, exc_orig == exc);
         /* Currently no other modifications of flags are atomic so this
            one isn't either.  If the thief wins it may run in parallel
            with the clear of DETACHED.  Does it modify flags too? */
         sf->flags &= ~CILK_FRAME_DETACHED;
         if (__builtin_expect(head >= tail, false)) {
-            Cilk_exception_handler(w, exn, head, tail);
+            Cilk_exception_handler(w, exn, head, tail, unpack_closure(exc_closure));
             // If Cilk_exception_handler returns this thread won the race and can
             // return to the parent function.
             // otherwise itll jump to runtime
