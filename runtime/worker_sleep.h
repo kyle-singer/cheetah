@@ -315,7 +315,7 @@ maybe_reengage_workers(global_state *const rts, worker_id self,
         }
 
         if (request > 0) {
-            request_more_thieves(rts, request);
+            request_more_thieves(rts, request, 0);
         }
 
         // Set a cap on the fail count.

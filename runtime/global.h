@@ -75,6 +75,7 @@ struct global_state {
     // optimization would improve performance.
     _Atomic uint32_t cilkified_futex __attribute__((aligned(CILK_CACHE_LINE)));
     atomic_bool cilkified;
+    atomic_int cilkified_epoch;
 
     pthread_mutex_t cilkified_lock;
     pthread_cond_t cilkified_cond_var;

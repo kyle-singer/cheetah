@@ -97,6 +97,7 @@ __attribute__((always_inline)) static inline void busy_pause(void) {
 
 static inline void set_cilkified(global_state *g) {
     // Set g->cilkified = 1, indicating that the execution is now cilkified.
+    atomic_fetch_add_explicit(&g->cilkified_epoch, 1, memory_order_release);
     atomic_store_explicit(&g->cilkified, 1, memory_order_release);
 #if USE_FUTEX
     atomic_store_explicit(&g->cilkified_futex, 0, memory_order_release);
@@ -165,14 +166,14 @@ static inline void reset_disengaged_var(global_state *g) {
 }
 
 // Request to reengage `count` thief threads.
-static inline void request_more_thieves(global_state *g, uint32_t count) {
+static inline void request_more_thieves(global_state *g, uint32_t count, uint32_t max_req_override) {
     CILK_ASSERT(count > 0);
 
     // Don't allow this routine increment the futex beyond half the number of
     // workers on the system.  This bounds how many successful steals can
     // possibly keep thieves engaged unnecessarily in the future, when there may
     // not be as much parallelism.
-    int32_t max_requests = (int32_t)(g->nworkers / 2);
+    int32_t max_requests = max_req_override > 0 ? (int32_t)max_req_override : (int32_t)(g->nworkers / 2);
 #if USE_FUTEX
     // This step synchronizes with concurrent calls to request_more_thieves and
     // concurrent calls to try_to_disengage_thief.
@@ -337,17 +338,19 @@ static inline bool thief_should_wait(global_state *g) {
 // g->terminate == 1).
 static inline void wake_thieves(global_state *g) {
 #if USE_FUTEX
-    atomic_store_explicit(&g->disengaged_thieves_futex, g->nworkers - 1,
+    atomic_store_explicit(&g->disengaged_thieves_futex, 1,
                           memory_order_release);
-    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, INT_MAX,
+    //atomic_store_explicit(&g->disengaged_thieves_futex, g->nworkers - 1,
+    //                      memory_order_release);
+    long s = futex(&g->disengaged_thieves_futex, FUTEX_WAKE_PRIVATE, 1,
                    NULL, NULL, 0);
     if (s == -1)
         errExit("futex-FUTEX_WAKE");
 #else
     pthread_mutex_lock(&g->disengaged_lock);
-    atomic_store_explicit(&g->disengaged_thieves_futex, g->nworkers - 1,
+    atomic_store_explicit(&g->disengaged_thieves_futex, 1,
                           memory_order_release);
-    pthread_cond_broadcast(&g->disengaged_cond_var);
+    pthread_cond_signal(&g->disengaged_cond_var);
     pthread_mutex_unlock(&g->disengaged_lock);
 #endif
 }

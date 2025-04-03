@@ -1004,6 +1004,9 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
         atomic_load_explicit(&victim_w->head, memory_order_relaxed);
     __cilkrts_stack_frame **tail =
         atomic_load_explicit(&victim_w->tail, memory_order_relaxed);
+
+    int curr_epoch;
+
     if (head >= tail) {
         return NULL;
     }
@@ -1441,7 +1444,7 @@ static inline void non_boss_scheduler(__cilkrts_worker *w) {
     };
 
     while (!rts->terminate) {
-        worker_scheduler(w, &history);
+       worker_scheduler(w, &history);
 
        // If it appears the computation is done, busy-wait for a while
        // before exiting the work-stealing loop, in case another cilkified
@@ -1628,6 +1631,13 @@ void worker_scheduler(__cilkrts_worker *w, history_t *const history) {
         // can reach this point with t == NULL and w->g->done == false.  Check
         // that t is not NULL before calling do_what_it_says.
         if (t) {
+            if (self != 0) {
+                int curr_epoch = atomic_load_explicit(&rts->cilkified_epoch, memory_order_acquire);
+                if (curr_epoch != l->cilkified_epoch) {
+                    request_more_thieves(rts, 2, nworkers);
+                    l->cilkified_epoch = curr_epoch;
+                }
+            }
 #if ENABLE_THIEF_SLEEP
             const unsigned int MIN_FAILS = 2 * ATTEMPTS;
             uint64_t start, end;

@@ -170,6 +170,7 @@ global_state *global_state_init(int argc, char *argv[]) {
     g->root_closure_initialized = false;
     atomic_store_explicit(&g->done, 0, memory_order_relaxed);
     atomic_store_explicit(&g->cilkified, 0, memory_order_relaxed);
+    atomic_store_explicit(&g->cilkified_epoch, 0, memory_order_relaxed);
     atomic_store_explicit(&g->disengaged_sentinel, 0, memory_order_relaxed);
 
     g->terminate = false;

@@ -14,6 +14,7 @@ struct local_state {
     bool returning;
     unsigned int rand_next;
     uint32_t wake_val;
+    uint32_t cilkified_epoch;
 
     jmpbuf rts_ctx;
     struct cilk_fiber_pool fiber_pool;
