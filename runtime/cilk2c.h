@@ -48,6 +48,13 @@ __cilkrts_enter_frame_helper(__cilkrts_stack_frame *sf,
 //   }
 CHEETAH_INTERNAL int __cilk_prepare_spawn(__cilkrts_stack_frame *sf);
 
+// Check if the current frame should abort
+// Returns true if it should abort, else false
+CHEETAH_INTERNAL bool __cilk_check_abort(__cilkrts_stack_frame *sf);
+
+// Set the abort flag associated with the current stack frame
+CHEETAH_INTERNAL void __cilk_set_abort(__cilkrts_stack_frame *sf);
+
 // Called in the spawn helper immediately before the spawned computation.
 // Enables the parent function to be stollen.
 CHEETAH_INTERNAL void __cilkrts_detach(__cilkrts_stack_frame *sf,

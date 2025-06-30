@@ -145,6 +145,18 @@ __cilk_prepare_spawn(__cilkrts_stack_frame *sf) {
     return res;
 }
 
+extern atomic_bool should_abort;
+
+__attribute__((always_inline)) bool
+__cilk_check_abort(__cilkrts_stack_frame *sf) {
+    return atomic_load_explicit(&should_abort, memory_order_acquire);
+}
+
+__attribute__((always_inline)) void
+__cilk_set_abort(__cilkrts_stack_frame *sf) {
+    atomic_store_explicit(&should_abort, true, memory_order_release);
+}
+
 // Detach the given Cilk stack frame, allowing other Cilk workers to steal the
 // parent frame.
 __attribute__((always_inline)) void
