@@ -145,16 +145,16 @@ __cilk_prepare_spawn(__cilkrts_stack_frame *sf) {
     return res;
 }
 
-extern atomic_bool should_abort;
-
 __attribute__((always_inline)) bool
-__cilk_check_abort(__cilkrts_stack_frame *sf) {
-    return atomic_load_explicit(&should_abort, memory_order_acquire);
+__cilk_check_no_abort(__cilkrts_stack_frame *sf) {
+    bool val = atomic_load_explicit(&should_not_abort, memory_order_acquire);
+    printf("%s\n", val ? "Should not abort" : "SHOULD abort");
+    return val;
 }
 
 __attribute__((always_inline)) void
 __cilk_set_abort(__cilkrts_stack_frame *sf) {
-    atomic_store_explicit(&should_abort, true, memory_order_release);
+    atomic_store_explicit(&should_not_abort, false, memory_order_release);
 }
 
 // Detach the given Cilk stack frame, allowing other Cilk workers to steal the

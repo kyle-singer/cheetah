@@ -6,6 +6,9 @@
 
 // Reducer structure for handling exceptions thrown in parallel.
 extern struct closure_exception exception_reducer;
+
+extern atomic_bool should_not_abort;
+
 // Init method for exception reducer.
 CHEETAH_INTERNAL void init_exception_reducer(void *v);
 // Reduce method for exception reducer.

@@ -15,6 +15,8 @@
 CHEETAH_INTERNAL
 struct closure_exception exception_reducer = {.exn = NULL};
 
+atomic_bool should_not_abort = true;
+
 extern void _Unwind_Resume(struct _Unwind_Exception *);
 extern _Unwind_Reason_Code _Unwind_RaiseException(struct _Unwind_Exception *);
 
