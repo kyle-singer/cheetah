@@ -1447,6 +1447,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
     __cilkrts_stack_frame **tail = atomic_load_explicit(&victim_w->tail, memory_order_relaxed);
 
     if (head >= tail) {
+        WHEN_SCHED_STATS(w->l->stats.empty_deque++);
         return NULL;
     }
 
@@ -1489,6 +1490,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
                 // deque_unlock(deques, self, victim);
 
                 if (res == (Closure *)NULL) {
+                    WHEN_SCHED_STATS(w->l->stats.extract_closure_failed++);
                     goto give_up;
                 }
                 
@@ -1515,11 +1517,13 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
                 // memlogger_logf("using stack   %p   free list era    %d   victim   %d   worker   %d   my tail   %p\n", w->closure_stack_head, w->closure_stack_head->free_list_era, victim_w->self, w->self, atomic_load_explicit(&w->tail, memory_order_relaxed));
                 w->closure_stack_head->spawn_parent = res;
             } else {
+                WHEN_SCHED_STATS(w->l->stats.null_head++);
                 goto give_up;
             }
             break;
         }
         case CLOSURE_RETURNING: /* ok, let it leave alone */
+            WHEN_SCHED_STATS(w->l->stats.closure_returning++);
         give_up:
             // MUST unlock the closure before the queue;
             // see rule D in the file PROTOCOLS
@@ -1527,22 +1531,27 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
             // deque_unlock(deques, self, victim);
             break;
         case CLOSURE_SUSPENDED:
+            WHEN_SCHED_STATS(w->l->stats.closure_suspended++);
             // you might have been pre-empted, come back and realized someone else already stole
             //printf("Found suspended closure in ready deque    closure    %p      worker  %d    victim   %d\n", cl, w->self, victim_w->self);
             break;
         case CLOSURE_POST_INVALID:
+            WHEN_SCHED_STATS(w->l->stats.closure_post_invalid++);
             // you might have been pre-empted, come back and realized someone else already stole
             //printf("Found post invalid closure in ready deque    closure    %p      worker  %d    victim   %d\n", cl, w->self, victim_w->self);
             break;
         case CLOSURE_PRE_INVALID:
+            WHEN_SCHED_STATS(w->l->stats.closure_pre_invalid++);
             // closure may not be fully ready yet but thats okay
             //printf("Found pre invalid closure in ready deque    closure    %p      worker  %d    victim   %d\n", cl, w->self, victim_w->self);
             break;
         case CLOSURE_READY:
+            WHEN_SCHED_STATS(w->l->stats.closure_ready++);
             // closure may not be fully ready yet but thats okay
             //printf("Found ready closure in ready deque    closure    %p      worker  %d    victim   %d\n", cl, w->self, victim_w->self);
             break;
         case CLOSURE_SYNC:
+            WHEN_SCHED_STATS(w->l->stats.closure_sync++);
             // closure hit a sync
             //printf("Found sync suspended closure in ready deque    closure    %p      worker  %d    victim   %d\n", cl, w->self, victim_w->self);
             break;
@@ -1556,6 +1565,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
         }
     } else {
         // deque_unlock(deques, self, victim);
+        WHEN_SCHED_STATS(w->l->stats.null_closure++);
         //----- EVENT_STEAL_EMPTY_DEQUE
     }
 
@@ -1998,10 +2008,13 @@ void worker_scheduler(__cilkrts_worker *w) {
             __attribute__((unused))
             uint32_t sentinel = recent_sentinel_count / SENTINEL_COUNT_HISTORY;
 
-            if (__builtin_expect(stealable == 1, false))
+            if (__builtin_expect(stealable == 1, false)) {
                 // If this worker detects only 1 stealable worker, then its the
                 // only worker in the work-stealing loop.
+                CILK_DROP_TIMING(w, INTERVAL_SCHED);
+                CILK_DROP_TIMING(w, INTERVAL_IDLE);
                 continue;
+            }
 
 #else // ENABLE_THIEF_SLEEP
             uint32_t stealable = nworkers;
@@ -2074,6 +2087,7 @@ void worker_scheduler(__cilkrts_worker *w) {
                 //   of sentinels and increase the delay by approximately S/lg
                 //   S, which seems to work better than a linear increase in
                 //   practice.
+                CILK_START_TIMING(w, INTERVAL_IDLE);
 #ifndef __APPLE__
 #ifndef __aarch64__
                 uint64_t stop = 450 * ATTEMPTS;
@@ -2098,6 +2112,7 @@ void worker_scheduler(__cilkrts_worker *w) {
                     busy_pause();
 #endif // __aarch64__
 #endif // __APPLE__
+                CILK_STOP_TIMING(w, INTERVAL_IDLE);
             }
         }
         CILK_START_TIMING(w, INTERVAL_SCHED);
@@ -2234,3 +2249,4 @@ void *scheduler_thread_proc(void *arg) {
         CILK_START_TIMING(w, INTERVAL_SLEEP_UNCILK);
     } while (true);
 }
+

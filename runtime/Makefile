@@ -13,7 +13,7 @@ HDRS = $(wildcard *.h)
 OBJS = $(patsubst %.c,./build/%.o,$(SRCS))
 INCLUDES = -I../include/
 DEFINES = $(REDUCER_DEF) $(ABI_DEF) $(ALERT_DEF)
-OPTIONS = $(OPT) $(DBG) $(ARCH) -Werror -Wall -fpic $(DEFINES) $(INCLUDES) -gdwarf-4
+OPTIONS = $(OPT) $(DBG) $(ARCH) -Wall -fpic $(DEFINES) $(INCLUDES) -gdwarf-4
 
 PERSON_C = $(RTS_LIBDIR)/$(RTS_C_PERSONALITY_LIB)
 PERSON_CPP = $(RTS_LIBDIR)/$(RTS_CXX_PERSONALITY_LIB)

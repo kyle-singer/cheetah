@@ -167,6 +167,16 @@ static void sched_stats_reset_worker(__cilkrts_worker *w,
     l->stats.repos = 0;
     l->stats.reeng_rqsts = 0;
     l->stats.onesen_rqsts = 0;
+    l->stats.empty_deque = 0;
+    l->stats.null_closure = 0;
+    l->stats.null_head = 0;
+    l->stats.extract_closure_failed = 0;
+    l->stats.closure_returning = 0;
+    l->stats.closure_suspended = 0;
+    l->stats.closure_post_invalid = 0;
+    l->stats.closure_pre_invalid = 0;
+    l->stats.closure_ready = 0;
+    l->stats.closure_sync = 0;
 }
 
 #define COL_DESC "%15s"
@@ -193,11 +203,33 @@ static void sched_stats_print_worker(__cilkrts_worker *w, void *data) {
     g->stats.reeng_rqsts += l->stats.reeng_rqsts;
     g->stats.onesen_rqsts += l->stats.onesen_rqsts;
 
+    g->stats.empty_deque += l->stats.empty_deque;
+    g->stats.null_closure += l->stats.null_closure;
+    g->stats.null_head += l->stats.null_head;
+    g->stats.extract_closure_failed += l->stats.extract_closure_failed;
+    g->stats.closure_returning += l->stats.closure_returning;
+    g->stats.closure_suspended += l->stats.closure_suspended;
+    g->stats.closure_post_invalid += l->stats.closure_post_invalid;
+    g->stats.closure_pre_invalid += l->stats.closure_pre_invalid;
+    g->stats.closure_ready += l->stats.closure_ready;
+    g->stats.closure_sync += l->stats.closure_sync;
+
+
     fprintf(stderr, COUNT_DESC, l->stats.steals);
     fprintf(stderr, COUNT_DESC, l->stats.repos);
     fprintf(stderr, COUNT_DESC, l->stats.reeng_rqsts);
     fprintf(stderr, COUNT_DESC, l->stats.onesen_rqsts);
-    fprintf(fp, "\n");
+    fprintf(stderr, COUNT_DESC, l->stats.empty_deque);
+    fprintf(stderr, COUNT_DESC, l->stats.null_closure);
+    fprintf(stderr, COUNT_DESC, l->stats.null_head);
+    fprintf(stderr, COUNT_DESC, l->stats.extract_closure_failed);
+    fprintf(stderr, COUNT_DESC, l->stats.closure_returning);
+    fprintf(stderr, COUNT_DESC, l->stats.closure_suspended);
+    fprintf(stderr, COUNT_DESC, l->stats.closure_post_invalid);
+    fprintf(stderr, COUNT_DESC, l->stats.closure_pre_invalid);
+    fprintf(stderr, COUNT_DESC, l->stats.closure_ready);
+    fprintf(stderr, COUNT_DESC, l->stats.closure_sync);
+    fprintf(stderr, "\n");
 }
 
 void cilk_sched_stats_print(struct global_state *g) {
@@ -209,6 +241,17 @@ void cilk_sched_stats_print(struct global_state *g) {
     g->stats.repos = 0;
     g->stats.reeng_rqsts = 0;
     g->stats.onesen_rqsts = 0;
+
+    g->stats.empty_deque = 0;
+    g->stats.null_closure = 0;
+    g->stats.null_head = 0;
+    g->stats.extract_closure_failed = 0;
+    g->stats.closure_returning = 0;
+    g->stats.closure_suspended = 0;
+    g->stats.closure_post_invalid = 0;
+    g->stats.closure_pre_invalid = 0;
+    g->stats.closure_ready = 0;
+    g->stats.closure_sync = 0;
 
     fprintf(stderr, "\nSCHEDULING STATS (SECONDS):\n");
     {
@@ -227,6 +270,17 @@ void cilk_sched_stats_print(struct global_state *g) {
     fprintf(stderr, COUNT_HDR_DESC, "reposses");
     fprintf(stderr, COUNT_HDR_DESC, "reengs");
     fprintf(stderr, COUNT_HDR_DESC, "onesen");
+
+    fprintf(stderr, COUNT_HDR_DESC, "empty_dq");
+    fprintf(stderr, COUNT_HDR_DESC, "null_cl");
+    fprintf(stderr, COUNT_HDR_DESC, "null_hd");
+    fprintf(stderr, COUNT_HDR_DESC, "extract");
+    fprintf(stderr, COUNT_HDR_DESC, "ret");
+    fprintf(stderr, COUNT_HDR_DESC, "susp");
+    fprintf(stderr, COUNT_HDR_DESC, "post_inv");
+    fprintf(stderr, COUNT_HDR_DESC, "pre_inv");
+    fprintf(stderr, COUNT_HDR_DESC, "ready");
+    fprintf(stderr, COUNT_HDR_DESC, "sync");
     fprintf(stderr, "\n");
 
     for_each_worker(g, &sched_stats_print_worker, stderr);
@@ -239,6 +293,18 @@ void cilk_sched_stats_print(struct global_state *g) {
     fprintf(stderr, COUNT_DESC, g->stats.repos);
     fprintf(stderr, COUNT_DESC, g->stats.reeng_rqsts);
     fprintf(stderr, COUNT_DESC, g->stats.onesen_rqsts);
+    
+    fprintf(stderr, COUNT_DESC, g->stats.empty_deque);
+    fprintf(stderr, COUNT_DESC, g->stats.null_closure);
+    fprintf(stderr, COUNT_DESC, g->stats.null_head);
+    fprintf(stderr, COUNT_DESC, g->stats.extract_closure_failed);
+    fprintf(stderr, COUNT_DESC, g->stats.closure_returning);
+    fprintf(stderr, COUNT_DESC, g->stats.closure_suspended);
+    fprintf(stderr, COUNT_DESC, g->stats.closure_post_invalid);
+    fprintf(stderr, COUNT_DESC, g->stats.closure_pre_invalid);
+    fprintf(stderr, COUNT_DESC, g->stats.closure_ready);
+    fprintf(stderr, COUNT_DESC, g->stats.closure_sync);
+
     fprintf(stderr, "\n");
 
     for_each_worker(g, &sched_stats_reset_worker, NULL);
@@ -267,3 +333,4 @@ void cilk_reset_timing() {
 void __cilkrts_sched_stats_print(void) {
     WHEN_SCHED_STATS(cilk_sched_stats_print(default_cilkrts));
 }
+

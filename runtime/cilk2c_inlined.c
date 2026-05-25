@@ -101,6 +101,7 @@ uncilkify(global_state *g, __cilkrts_stack_frame *sf) {
 // function must be inlined for correctness.
 __attribute__((always_inline)) void
 __cilkrts_enter_frame(__cilkrts_stack_frame *sf) {
+    static int test = 0;
     sf->flags = 0;
     if (__cilkrts_need_to_cilkify) {
         cilkify(sf);
@@ -179,7 +180,7 @@ __cilkrts_detach(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent) {
     ptrdiff_t raw_index = tail - init;       // could be >= array length
     CILK_ASSERT(w, raw_index >= 0);
 
-    ptrdiff_t circular_tail = raw_index & w->stack_bitmask;
+    ptrdiff_t circular_tail = raw_index & 1023;
     CILK_ASSERT(w, (circular_tail + 1 + init) < w->ltq_limit);
 
     *(init + circular_tail) = parent;
@@ -306,8 +307,10 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf,
     /* The store of tail must precede the load of exc in global order.  See
        comment in do_dekker_on. */
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-    double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-    __cilkrts_stack_frame **head = unpack_exc(exc_closure);
+
+    __cilkrts_stack_frame **head = atomic_load_explicit(
+        (_Atomic(__cilkrts_stack_frame **) *)((char *)&w->exc_closure + 8),
+        memory_order_seq_cst);
 
     // __cilkrts_stack_frame **hqead = unpack_exc(exc_closure);
     // printf("w %d    exc_orig %p    exc %p\n", w->self, exc_orig, exc);
@@ -323,6 +326,8 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf,
     
 
     if (__builtin_expect(head >= tail, false)) {
+        double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        head = unpack_exc(exc_closure);
         if (head == tail && atomic_compare_exchange_strong_explicit(&w->exc_closure, &exc_closure, pack_pointers(head + 1, unpack_closure(exc_closure)), memory_order_seq_cst, memory_order_relaxed)) {
             // won the race
             // stodo should i do tail+1
@@ -419,6 +424,16 @@ __cilk_helper_epilogue_exn(__cilkrts_stack_frame *sf,
                            __cilkrts_stack_frame *parent, char *exn,
                            bool spawner) {
     __cilkrts_pause_frame(sf, parent, exn, spawner);
+}
+
+// Internal helper function to ensure the __cilkrts_stack_frame type is present
+// in the bitcode file.  Does not end up in compiled Cilk code nor the OpenCilk
+// runtime library.
+CHEETAH_INTERNAL __cilkrts_stack_frame
+__internal_preserve_stack_frame_type_helper(void) {
+    __cilkrts_stack_frame sf;
+    __cilkrts_enter_frame(&sf);
+    return sf;
 }
 
 /// Computes a grainsize for a cilk_for loop, using the following equation:

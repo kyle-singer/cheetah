@@ -2,7 +2,7 @@ CONFIG_DIR:=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 
 -include $(CONFIG_DIR)../cheetah_config.mk
 
-COMPILER_BASE?=
+COMPILER_BASE?=/opt/opencilk-3/bin/
 CC=$(COMPILER_BASE)clang
 CXX=$(COMPILER_BASE)clang++
 LINK_CC=$(CC)
@@ -21,8 +21,8 @@ RTS_PEDIGREE_LIB?=libopencilk-pedigrees
 # `/oath/to/cheetah/lib/<target-triple>`, so that the compiler can easily find
 # all of those files using the flag --opencilk-resource-dir=/path/to/cheetah.
 RTS_LIBDIR_NAME?=lib/$(shell $(LLVM_CONFIG) --host-target)
-RESOURCE_DIR?=$(CONFIG_DIR)
-RTS_LIBDIR?=$(RESOURCE_DIR)$(RTS_LIBDIR_NAME)
+RESOURCE_DIR?=$(CONFIG_DIR)/build
+RTS_LIBDIR?=$(RESOURCE_DIR)/$(RTS_LIBDIR_NAME)
 RTS_OPT?=-fopencilk --opencilk-resource-dir=$(RESOURCE_DIR)
 #RTS_LIB_FLAG=-lcheetah
 

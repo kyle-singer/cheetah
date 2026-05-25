@@ -29,6 +29,17 @@ struct sched_stats {
     uint64_t repos;
     uint64_t reeng_rqsts;
     uint64_t onesen_rqsts;
+
+    uint64_t empty_deque;
+    uint64_t null_closure;
+    uint64_t null_head;
+    uint64_t extract_closure_failed;
+    uint64_t closure_returning;
+    uint64_t closure_suspended;
+    uint64_t closure_post_invalid;
+    uint64_t closure_pre_invalid;
+    uint64_t closure_ready;
+    uint64_t closure_sync;
 };
 
 struct global_sched_stats {
@@ -42,6 +53,16 @@ struct global_sched_stats {
     uint64_t repos;
     uint64_t reeng_rqsts;
     uint64_t onesen_rqsts;
+    uint64_t empty_deque;
+    uint64_t null_closure;
+    uint64_t null_head;
+    uint64_t extract_closure_failed;
+    uint64_t closure_returning;
+    uint64_t closure_suspended;
+    uint64_t closure_post_invalid;
+    uint64_t closure_pre_invalid;
+    uint64_t closure_ready;
+    uint64_t closure_sync;
     double time[NUMBER_OF_STATS]; // Total time measured for all stats
     uint64_t count[NUMBER_OF_STATS];
 };
@@ -98,3 +119,4 @@ void cilk_sched_stats_print(struct global_state *g);
 #endif // SCHED_STATS
 
 #endif // __SCHED_STATS_HEADER__
+
