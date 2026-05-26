@@ -175,7 +175,7 @@ __cilkrts_detach(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent) {
     // CILK_ASSERT(w, (tail + 1) < w->ltq_limit);
 
     // store parent at *tail, and then increment tail
-    __cilkrts_stack_frame **init = w->l->shadow_stack;
+    __cilkrts_stack_frame **init = __cilkrts_tls_shadow_stack_init;
 
     ptrdiff_t raw_index = tail - init;       // could be >= array length
     CILK_ASSERT(w, raw_index >= 0);

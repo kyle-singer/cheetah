@@ -52,6 +52,7 @@ __thread __cilkrts_worker *__cilkrts_tls_worker = &default_worker;
 // worker itself.  Thus, it's notably faster to store a pointer to the current
 // fiber header itself in TLS.
 __thread struct cilk_fiber *__cilkrts_current_fh = NULL;
+__thread struct __cilkrts_stack_frame **__cilkrts_tls_shadow_stack_init = NULL;
 
 // ==============================================
 // Misc. helper functions
@@ -257,6 +258,7 @@ static void setup_for_sync(__cilkrts_worker *w, worker_id self, Closure *t) {
 
 CHEETAH_INTERNAL void __cilkrts_set_tls_worker(__cilkrts_worker *w) {
     __cilkrts_tls_worker = w;
+    __cilkrts_tls_shadow_stack_init = w->l ? w->l->shadow_stack : NULL;
 }
 
 // ==============================================
