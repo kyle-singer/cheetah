@@ -23,6 +23,7 @@ check_library_exists(rt clock_gettime "" CHEETAH_HAS_RT_LIB)
 # Check compiler flags
 check_c_compiler_flag(-fomit-frame-pointer CHEETAH_HAS_FOMIT_FRAME_POINTER_FLAG)
 check_c_compiler_flag("-mavx -Werror" CHEETAH_HAS_MAVX_FLAG)
+check_c_compiler_flag("-mcx16 -Werror" CHEETAH_HAS_MCX16_FLAG)
 check_c_compiler_flag("-march=sandybridge -Werror" CHEETAH_HAS_MARCH_SANDYBRIDGE_FLAG)
 check_c_compiler_flag(-femulated-tls CHEETAH_HAS_FEMULATED_TLS_FLAG)
 check_c_compiler_flag(-fdebug-default-version=4 CHEETAH_HAS_FDEBUG_DEFAULT_VERSION_EQ_4_FLAG)

@@ -94,10 +94,21 @@ endif()
 # excluded from bitcode compilation
 if (DEFINED CHEETAH_ARCH_FLAGS)
   list(APPEND CHEETAH_COMPILE_FLAGS ${CHEETAH_ARCH_FLAGS})
+  # For now this is an error; for perf reasons we require -mcx16,
+  # so disallow this path
+  message(FATAL_ERROR "CHEETAH_HAS_MCX16_FLAG is false!")
 else()
   if (CHEETAH_HAS_MAVX_FLAG)
     list(APPEND CHEETAH_COMPILE_FLAGS -mavx)
   endif()
+
+  if (CHEETAH_HAS_MCX16_FLAG)
+    list(APPEND CHEETAH_COMPILE_FLAGS -mcx16)
+  else()
+    # For now this is an error; for perf reasons we require -mcx16
+    message(FATAL_ERROR "CHEETAH_HAS_MCX16_FLAG is false!")
+  endif()
+
 endif()
 
 if (APPLE)
