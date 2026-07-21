@@ -21,13 +21,13 @@ RTS_PEDIGREE_LIB?=libopencilk-pedigrees
 # `/oath/to/cheetah/lib/<target-triple>`, so that the compiler can easily find
 # all of those files using the flag --opencilk-resource-dir=/path/to/cheetah.
 RTS_LIBDIR_NAME?=lib/$(shell $(LLVM_CONFIG) --host-target)
-RESOURCE_DIR?=$(CONFIG_DIR)
-RTS_LIBDIR?=$(RESOURCE_DIR)$(RTS_LIBDIR_NAME)
+RESOURCE_DIR?=$(CONFIG_DIR)/build
+RTS_LIBDIR?=$(RESOURCE_DIR)/$(RTS_LIBDIR_NAME)
 RTS_OPT?=-fopencilk --opencilk-resource-dir=$(RESOURCE_DIR)
 #RTS_LIB_FLAG=-lcheetah
 
 #ARCH = -mavx
-OPT ?= -O3
+OPT ?= -O3 -mcx16
 DBG ?= -g3
 # A large number of processors, system-dependent
 # TODO: There should be an additional value meaning "all cores"
