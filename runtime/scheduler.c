@@ -2100,7 +2100,12 @@ void worker_scheduler(__cilkrts_worker *w) {
                 // microarchitectures.  We use the cycle counter to delay by a
                 // certain amount of time, regardless of the latency of pause.
                 while ((__builtin_readcyclecounter() - start) < stop) {
-                    busy_pause();
+#if SCHED_YIELD_BETWIXT_STEALS
+                   sched_yield();
+#else
+                   busy_pause();
+#endif                   
+                   //usleep(0);
                 }
 #else
                 int pause_count = 200 * ATTEMPTS;
