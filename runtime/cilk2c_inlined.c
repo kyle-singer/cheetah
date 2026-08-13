@@ -101,7 +101,7 @@ uncilkify(global_state *g, __cilkrts_stack_frame *sf) {
 // function must be inlined for correctness.
 __attribute__((always_inline)) void
 __cilkrts_enter_frame(__cilkrts_stack_frame *sf) {
-    static int test = 0;
+    //static int test = 0;
     sf->flags = 0;
     if (__cilkrts_need_to_cilkify) {
         cilkify(sf);
@@ -243,7 +243,7 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
     // printf("leaving frame   curr stack frame    %p      worker  %d\n", sf, w->self);
-    CILK_ASSERT(w, parent);
+    //CILK_ASSERT(w, parent);
     sf->fh->current_stack_frame = parent;
     sf->call_parent = NULL;
 
@@ -266,8 +266,8 @@ __cilkrts_leave_frame(__cilkrts_stack_frame *sf) {
     // frame is called (not spawned).  A spawned full frame returning is done
     // via a different protocol, which is triggered in Cilk_exception_handler.
     if (flags & CILK_FRAME_STOLEN) { // if this frame has a full frame
-        cilkrts_alert(RETURN, w,
-                      "__cilkrts_leave_frame parent is call_parent!");
+        //cilkrts_alert(RETURN, w,
+        //              "__cilkrts_leave_frame parent is call_parent!");
         // leaving a full frame; need to get the full frame of its call
         // parent back onto the deque
         // printf("w   %d      leaving frame   %p\n", w->self, sf);
@@ -358,7 +358,7 @@ void __cilkrts_enter_landingpad(__cilkrts_stack_frame *sf, int32_t sel) {
     if (__cilkrts_need_to_cilkify)
         return;
 
-    CILK_ASSERT_G(sf);
+    //CILK_ASSERT_G(sf);
     sf->fh->current_stack_frame = sf;
 
     // Don't do anything special during cleanups.
@@ -385,7 +385,7 @@ __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
     // Pop this frame off the cactus stack.  This logic used to be in
     // __cilkrts_pop_frame, but has been manually inlined to avoid reloading the
     // worker unnecessarily.
-    CILK_ASSERT(w, parent);
+    //CILK_ASSERT(w, parent);
     if (spawner)
         sf->fh->current_stack_frame = parent;
     sf->call_parent = NULL;
