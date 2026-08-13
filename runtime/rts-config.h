@@ -21,7 +21,7 @@
 #define __CILKRTS_ABI_VERSION 4
 
 #ifndef CILK_DEBUG
-#define CILK_DEBUG 1
+#define CILK_DEBUG 0
 #endif
 
 #ifndef CILK_ENABLE_ASAN_HOOKS
@@ -50,7 +50,7 @@
 #define SCHED_YIELD_BETWIXT_STEALS 0
 #endif
 
-#define ENABLE_EXTENSION 1
+#define ENABLE_EXTENSION 0
 
 #define ENABLE_WORKER_PINNING 0
 
