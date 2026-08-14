@@ -104,19 +104,14 @@ static inline bool Closure_hit_sync(__uint64_t packed) {
 }
 
 static inline __attribute__((always_inline)) double_ptr 
-pack_pointers(__cilkrts_stack_frame ** ptr1, Closure * ptr2) {
+pack_pointers(uint64_t ptr1, Closure * ptr2) {
     return ((uintptr_t)ptr1) | (((double_ptr)ptr2) << 64);
 }
 
-//static inline __attribute__((always_inline)) double_ptr 
-//pack(__cilkrts_stack_frame ** ptr1, int ptr2) {
-//    return ((uintptr_t)ptr1) | (((double_ptr)ptr2) << 64);
-//}
-
-static inline __attribute__((always_inline)) __cilkrts_stack_frame ** 
+static inline __attribute__((always_inline)) uint64_t 
 unpack_exc(double_ptr packed) {
     // Store exception pointer in high bits
-    return (__cilkrts_stack_frame **)(packed);
+    return (uint64_t)(packed);
 }
 
 static inline __attribute__((always_inline)) Closure * 
@@ -261,12 +256,12 @@ static inline void Closure_set_status(__cilkrts_worker *const w, Closure *t,
 // mean while, the stolen flag is not set until finish_promote.
 static inline int Closure_at_top_of_stack(__cilkrts_worker *const w,
                                           __cilkrts_stack_frame *const frame) {
-    __cilkrts_stack_frame **head =
+    uint64_t head =
         unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_relaxed));
     uint64_t tail =
         atomic_load_explicit(&w->tail, memory_order_relaxed);
     
-    return (head == (w->ltq_start + tail) && __cilkrts_stolen(frame));
+    return (head == tail && __cilkrts_stolen(frame));
 }
 
 static inline int32_t get_join_counter(__uint64_t packed) {
@@ -544,52 +539,6 @@ static inline void Closure_suspend_victim(__cilkrts_worker *thief,
     // CILK_ASSERT(thief, cl == cl1);
     // CILK_ASSERT(thief, cl == cl1_orig);
     USE_UNUSED(cl1);
-}
-
-static inline bool Closure_suspend_on_sync(__cilkrts_worker *const w, worker_id self,
-                                   Closure *cl, __cilkrts_stack_frame** old_exc, int32_t join_counter, __uint64_t* parent_state) {
-
-    Closure *cl1;
-
-    cilkrts_alert(SCHED, w, "Closure_suspend %p", (void *)cl);
-
-    Closure_checkmagic(w, cl);
-
-    CILK_ASSERT(w, cl == w->g->root_closure || cl->spawn_parent ||
-                       cl->call_parent);
-    CILK_ASSERT(w, cl->frame != NULL);
-    CILK_ASSERT(w, __cilkrts_stolen(cl->frame));
-
-    __uint64_t new_jc = pack_join_counter(join_counter, true);
-
-    Closure_change_status(w, cl, CLOSURE_RUNNING, CLOSURE_SYNC);
-    // stodo
-    if (!atomic_compare_exchange_weak_explicit(&cl->join_counter, parent_state, new_jc, memory_order_release, memory_order_acquire)) {
-        // join counter changed
-        Closure_change_status(w, cl, CLOSURE_SYNC, CLOSURE_RUNNING);
-        return false;
-    }
-    //printf("suspend  %d   closure  %p\n", self, cl);
-
-     //wont work stodo
-    // double_ptr fetch = pack_pointers(old_exc, cl);
-
-    // STODO do i need to loop
-    double_ptr new_value = pack_pointers(old_exc, (Closure *)NULL);
-    atomic_store_explicit(&w->exc_closure, new_value, memory_order_relaxed);
-
-    // bool success = expected_abort(w, old_exc, (Closure *)NULL, &fetch);
-    // if (!success) {
-    //     //printf("closure was actually   %p    exc was   %p    worker   %d\n", unpack_closure(fetch), unpack_exc(fetch), w->self);
-    //     CILK_ASSERT(w, false);
-    // }
-    return true;
-
-    // CILK_ASSERT(w, cl1_orig == cl1);
-    // CILK_ASSERT_POINTER_EQUAL(w, cl, cl1);
-
-    // CILK_ASSERT(w, cl == cl1_orig);
-    // USE_UNUSED(cl1);
 }
 
 static inline void Closure_make_ready(Closure *cl) { cl->status = CLOSURE_READY; }

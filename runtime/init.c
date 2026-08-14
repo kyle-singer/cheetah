@@ -116,9 +116,9 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
         w->l->shadow_stack + g->options.deqdepth;
     *(struct __cilksrts_stack_frame ***)(&w->ltq_start) = w->l->shadow_stack;
     g->workers[i] = w;
-    __cilkrts_stack_frame **init = w->l->shadow_stack + 1;
-    atomic_store_explicit(&w->tail, 1, memory_order_release);
-    atomic_store_explicit(&w->exc_closure, pack_pointers(init, (Closure *)NULL), memory_order_release);
+    //__cilkrts_stack_frame **init = w->l->shadow_stack + 1;
+    atomic_store_explicit(&w->tail, g->options.deqdepth, memory_order_release);
+    atomic_store_explicit(&w->exc_closure, pack_pointers(g->options.deqdepth, (Closure *)NULL), memory_order_release);
     w->free_list_head = NULL;
     w->stack_bitmask = g->options.deqdepth - 1;
 
@@ -557,10 +557,10 @@ void __cilkrts_internal_exit_cilkified_root(global_state *g,
     // deque lock to make sure no other worker has a lingering pointer to the
     // closure.
 
-    __cilkrts_stack_frame **head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_acquire));
+    uint64_t head = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_acquire));
     uint64_t tail =
         atomic_load_explicit(&w->tail, memory_order_acquire);
-    CILK_ASSERT(w, head == w->ltq_start + tail);
+    CILK_ASSERT(w, head == tail);
     //printf("exit root worker    %d\n", w->self);
     atomic_store_explicit(&w->exc_closure, pack_pointers(head, (Closure *)NULL), memory_order_release);
 

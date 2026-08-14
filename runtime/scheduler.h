@@ -17,7 +17,7 @@ CHEETAH_INTERNAL int Cilk_sync(__cilkrts_worker *const ws,
                                __cilkrts_stack_frame *frame);
 
 void Cilk_set_return(__cilkrts_worker *const ws);
-void Cilk_exception_handler(__cilkrts_worker *w, char *exn, __cilkrts_stack_frame **old_exc, __cilkrts_stack_frame **tail, Closure *t);
+void Cilk_exception_handler(__cilkrts_worker *w, char *exn, uint64_t old_exc, uint64_t tail, Closure *t);
 
 CHEETAH_INTERNAL_NORETURN void longjmp_to_runtime(__cilkrts_worker *w);
 CHEETAH_INTERNAL void worker_scheduler(__cilkrts_worker *ws);
