@@ -114,6 +114,7 @@ __cilkrts_worker *__cilkrts_init_tls_worker(worker_id i, global_state *g) {
 
     *(struct __cilkrts_stack_frame ***)(&w->ltq_limit) =
         w->l->shadow_stack + g->options.deqdepth;
+    *(struct __cilksrts_stack_frame ***)(&w->ltq_start) = w->l->shadow_stack;
     g->workers[i] = w;
     __cilkrts_stack_frame **init = w->l->shadow_stack + 1;
     atomic_store_explicit(&w->tail, init, memory_order_release);

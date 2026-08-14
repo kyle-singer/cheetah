@@ -56,7 +56,10 @@ struct __cilkrts_worker {
     // T and E are frequently accessed and should be in a hot cache line.
     // E and pointer to worker's current closure is stored in a 128-bit struct
     // H could be moved elsewhere because it is only touched when stealing.
-    _Atomic(struct __cilkrts_stack_frame **) tail;
+    //_Atomic(uint64_t) tail;
+    _Atomic(__cilkrts_stack_frame **) tail;
+    // Start of the Lazy Task Queue, for converting indices to stack frames.
+    struct __cilkrts_stack_frame **const ltq_start;
     _Atomic(double_ptr) exc_closure __attribute__((aligned(64)));
     // _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
     // _Atomic(struct __cilkrts_stack_frame **) head __attribute__((aligned(CILK_CACHE_LINE)));
