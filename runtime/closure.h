@@ -263,10 +263,10 @@ static inline int Closure_at_top_of_stack(__cilkrts_worker *const w,
                                           __cilkrts_stack_frame *const frame) {
     __cilkrts_stack_frame **head =
         unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_relaxed));
-    __cilkrts_stack_frame **tail =
+    uint64_t tail =
         atomic_load_explicit(&w->tail, memory_order_relaxed);
     
-    return (head == tail && __cilkrts_stolen(frame));
+    return (head == (w->ltq_start + tail) && __cilkrts_stolen(frame));
 }
 
 static inline int32_t get_join_counter(__uint64_t packed) {

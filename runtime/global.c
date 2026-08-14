@@ -29,7 +29,7 @@ __cilkrts_worker default_worker = {.self = 0,
                                    .l = NULL,
                                    .extension = NULL,
                                    .ext_stack = NULL,
-                                   .tail = NULL,
+                                   .tail = 0,
                                    .exc_closure = 0,
                                    .ltq_limit = NULL};
 CHEETAH_INTERNAL
