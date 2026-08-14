@@ -105,31 +105,25 @@ static inline bool Closure_hit_sync(__uint64_t packed) {
 
 static inline __attribute__((always_inline)) double_ptr 
 pack_pointers(__cilkrts_stack_frame ** ptr1, Closure * ptr2) {
-    return ((double_ptr)ptr1 << 64) | (uintptr_t)ptr2;
+    return ((uintptr_t)ptr1) | (((double_ptr)ptr2) << 64);
 }
 
-static inline __attribute__((always_inline)) double_ptr 
-pack(__cilkrts_stack_frame ** ptr1, int ptr2) {
-    return ((double_ptr)ptr1 << 64) | ptr2;
-}
+//static inline __attribute__((always_inline)) double_ptr 
+//pack(__cilkrts_stack_frame ** ptr1, int ptr2) {
+//    return ((uintptr_t)ptr1) | (((double_ptr)ptr2) << 64);
+//}
 
 static inline __attribute__((always_inline)) __cilkrts_stack_frame ** 
 unpack_exc(double_ptr packed) {
     // Store exception pointer in high bits
-    return (__cilkrts_stack_frame **)(packed >> 64);
+    return (__cilkrts_stack_frame **)(packed);
 }
 
 static inline __attribute__((always_inline)) Closure * 
 unpack_closure(double_ptr packed) {
     // Store closure pointer in low bits
     // gdb -> py print(2596132336160535047815725313949696 %(1 << 64))
-    return (Closure *)packed;
-}
-
-static inline __attribute__((always_inline)) int 
-unpack_offset(double_ptr packed) {
-    // Store exception pointer in high bits
-    return (int64_t)packed;
+    return (Closure *)(packed >> 64);
 }
 
 // STODO, implement better CAS loop. returns new value itself. dont need atomic load. use compare CAS

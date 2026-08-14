@@ -79,6 +79,8 @@ static void set_stacksize(global_state *g, size_t stacksize) {
 }
 
 static void set_deqdepth(global_state *g, unsigned int deqdepth) {
+    fprintf(stderr, "Changing the deque depth is not currently supported!\n");
+    exit(EXIT_FAILURE);
     // TODO: Verify that g has not yet been initialized.
     CILK_ASSERT_G(!g->workers_started);
     CILK_ASSERT_G(deqdepth >= 1);

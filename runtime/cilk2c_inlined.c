@@ -180,7 +180,11 @@ __cilkrts_detach(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent) {
     ptrdiff_t raw_index = tail - init;       // could be >= array length
     CILK_ASSERT(w, raw_index >= 0);
 
-    ptrdiff_t circular_tail = raw_index & 1023;
+    // Assert that the deque depth is a power of 2; otherwise the following
+    // mask does not act as a mod operator
+    _Static_assert(DEFAULT_DEQ_DEPTH > 1
+        && (DEFAULT_DEQ_DEPTH & (DEFAULT_DEQ_DEPTH - 1)) == 0);
+    ptrdiff_t circular_tail = raw_index & (DEFAULT_DEQ_DEPTH-1);
     CILK_ASSERT(w, (circular_tail + 1 + init) < w->ltq_limit);
 
     *(init + circular_tail) = parent;
@@ -309,7 +313,7 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf,
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
 
     __cilkrts_stack_frame **head = atomic_load_explicit(
-        (_Atomic(__cilkrts_stack_frame **) *)((char *)&w->exc_closure + 8),
+        (_Atomic(__cilkrts_stack_frame **) *)((char *)&w->exc_closure),
         memory_order_seq_cst);
 
     // __cilkrts_stack_frame **hqead = unpack_exc(exc_closure);
@@ -403,18 +407,33 @@ __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
         /* The store of tail must precede the load of exc in global order.
            See comment in do_dekker_on. */
         atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-        double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-        __cilkrts_stack_frame **head = unpack_exc(exc_closure);
+        __cilkrts_stack_frame **head = atomic_load_explicit(
+            (_Atomic(__cilkrts_stack_frame **) *)((char *)&w->exc_closure),
+            memory_order_seq_cst);
         // CILK_ASSERT(w, exc_orig == exc);
         /* Currently no other modifications of flags are atomic so this
            one isn't either.  If the thief wins it may run in parallel
            with the clear of DETACHED.  Does it modify flags too? */
         sf->flags &= ~CILK_FRAME_DETACHED;
         if (__builtin_expect(head >= tail, false)) {
-            Cilk_exception_handler(w, exn, head, tail, unpack_closure(exc_closure));
-            // If Cilk_exception_handler returns this thread won the race and can
-            // return to the parent function.
-            // otherwise itll jump to runtime
+          //Cilk_exception_handler(w, exn, head, tail, unpack_closure(exc_closure));
+
+          double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+          head = unpack_exc(exc_closure);
+          if (head == tail && atomic_compare_exchange_strong_explicit(&w->exc_closure, &exc_closure, pack_pointers(head + 1, unpack_closure(exc_closure)), memory_order_seq_cst, memory_order_relaxed)) {
+              // won the race
+              // stodo should i do tail+1
+              // //printf("w   %d  won the race setting head   closure   %p    exc   %p    tail    %p\n", self, t, old_exc + 1, tail + 1);
+              atomic_store_explicit(&w->tail, tail + 1, memory_order_relaxed);
+          } else {
+              // reset_exc couldve updated
+              Cilk_exception_handler(w, exn, unpack_exc(exc_closure), tail, unpack_closure(exc_closure));
+              // If Cilk_exception_handler returns this thread won the race and can
+              // return to the parent function.
+          }
+          // If Cilk_exception_handler returns this thread won the race and can
+          // return to the parent function.
+          // otherwise itll jump to runtime
         }
     }
 }
