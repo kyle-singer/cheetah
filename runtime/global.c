@@ -30,7 +30,7 @@ __cilkrts_worker default_worker = {.self = 0,
                                    .extension = NULL,
                                    .ext_stack = NULL,
                                    .tail = 0,
-                                   .exc_closure = 0,
+                                   .exc_closure = (head_closure_t){ .head = 0, .closure = NULL},
                                    .ltq_limit = NULL};
 CHEETAH_INTERNAL
 local_state default_worker_local_state;

@@ -3,6 +3,7 @@
 
 // Includes
 #include <stdatomic.h>
+#include <stddef.h>
 #include "debug.h"
 
 #include "cilk-internal.h"
@@ -103,22 +104,25 @@ static inline bool Closure_hit_sync(__uint64_t packed) {
     return (bool)((packed >> 32) & 0x1);
 }
 
-static inline __attribute__((always_inline)) double_ptr 
+static inline __attribute__((always_inline)) head_closure_t 
 pack_pointers(uint64_t ptr1, Closure * ptr2) {
-    return ((uintptr_t)ptr1) | (((double_ptr)ptr2) << 64);
+    return (head_closure_t){ .head = ptr1, .closure = ptr2 };
+    //return ((uintptr_t)ptr1) | (((head_closure_t)ptr2) << 64);
 }
 
 static inline __attribute__((always_inline)) uint64_t 
-unpack_exc(double_ptr packed) {
+unpack_exc(head_closure_t packed) {
     // Store exception pointer in high bits
-    return (uint64_t)(packed);
+    return packed.head;
+    //return (uint64_t)(packed);
 }
 
 static inline __attribute__((always_inline)) Closure * 
-unpack_closure(double_ptr packed) {
+unpack_closure(head_closure_t packed) {
     // Store closure pointer in low bits
     // gdb -> py print(2596132336160535047815725313949696 %(1 << 64))
-    return (Closure *)(packed >> 64);
+    return packed.closure;
+    //return (Closure *)(packed >> 64);
 }
 
 // STODO, implement better CAS loop. returns new value itself. dont need atomic load. use compare CAS
@@ -164,12 +168,12 @@ increment_join_counter(__cilkrts_worker *w, Closure *closure) {
 
 // static inline __attribute((always_inline)) Closure *
 // fetch_and_update_closure(__cilkrts_worker *w, Closure * new_closure) {
-//     double_ptr old_value = atomic_load_explicit(&w->exc_closure, memory_order_acquire);
+//     head_closure_t old_value = atomic_load_explicit(&w->exc_closure, memory_order_acquire);
 //     __cilkrts_stack_frame **exc = unpack_exc(old_value);
 //     Closure * closure = unpack_closure(old_value);
 
 //     // Prepare the new value
-//     double_ptr new_value = pack_pointers(exc, new_closure);
+//     head_closure_t new_value = pack_pointers(exc, new_closure);
 
 //     atomic_store_explicit(&w->exc_closure, new_value, memory_order_release);
 //     return closure;
@@ -179,7 +183,7 @@ increment_join_counter(__cilkrts_worker *w, Closure *closure) {
 // update_closure_abort(__cilkrts_worker *w, Closure * new_closure) {
 //     //printf("fetch updating closure abort for worker     %d   closure    %p\n", w->self, new_closure);
 //     __cilkrts_stack_frame **exc = unpack_exc(atomic_load_explicit(&w->exc_closure, memory_order_acquire));
-//     double_ptr new_value = pack_pointers(exc, new_closure);
+//     head_closure_t new_value = pack_pointers(exc, new_closure);
 
 //     atomic_store_explicit(&w->exc_closure, new_value, memory_order_release);
 // }
@@ -264,6 +268,14 @@ static inline int Closure_at_top_of_stack(__cilkrts_worker *const w,
     return (head == tail && __cilkrts_stolen(frame));
 }
 
+static inline Closure* __attribute__((always_inline)) torn_read_cl_from_exc_closure(__cilkrts_worker *const w, const memory_order order) {
+    return atomic_load_explicit((_Atomic(Closure*)*)(((char*)&w->exc_closure) + offsetof(head_closure_t, closure)), order);
+}
+
+static inline uint64_t __attribute__((always_inline)) torn_read_head_from_exc_closure(__cilkrts_worker *const w, const memory_order order) {
+    return atomic_load_explicit((_Atomic(uint64_t)*)(((char*)&w->exc_closure + offsetof(head_closure_t, head))), order);
+}
+
 static inline int32_t get_join_counter(__uint64_t packed) {
     return (int32_t)(packed & 0xFFFFFFFFULL);
 }
@@ -284,35 +296,6 @@ static inline void Closure_set_frame(__cilkrts_worker *w,
     cl->frame = sf;
 }
 
-
-// // Note that we must have the lock on the parent when invoking this function
-// static inline void double_link_children(__cilkrts_worker *const w,
-//                                         Closure *left, Closure *right) {
-
-//     if (left) {
-//         CILK_ASSERT(w, CLosure_get_right_sib(left) == (Closure *)NULL);
-//         left->right_sib = right;
-//     }
-
-//     if (right) {
-//         CILK_ASSERT(w, right->left_sib == (Closure *)NULL);
-//         right->left_sib = left;
-//     }
-// }
-
-static inline __attribute__((always_inline)) double_ptr 
-pack_stamped_closure(int stamp, Closure * closure) {
-    return (((double_ptr)stamp) << 64) | (uintptr_t)closure;
-}
-
-// use free_list_era as a stamp
-static inline __attribute__((always_inline)) Closure *get_closure(double_ptr stamped_closure) {
-    return (Closure *)stamped_closure;
-}
-
-static inline __attribute__((always_inline)) int get_stamp(double_ptr stamped_closure) {
-    return (int)(stamped_closure >> 64);
-}
 
 static void finish_global_stack_update(global_state *g, __uint16_t index, __uint64_t counter, Closure *recent_closure) {
     Closure * old_closure = get_free_list_closure(atomic_load_explicit(&g->free_list[index], memory_order_acquire));

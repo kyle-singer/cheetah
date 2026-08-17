@@ -58,9 +58,10 @@ struct __cilkrts_worker {
     // H could be moved elsewhere because it is only touched when stealing.
     //_Atomic(uint64_t) tail;
     _Atomic(uint64_t) tail;
+    //struct __cilkrts_stack_frame **tail_ptr;
     // Start of the Lazy Task Queue, for converting indices to stack frames.
     struct __cilkrts_stack_frame **const ltq_start;
-    _Atomic(double_ptr) exc_closure __attribute__((aligned(64)));
+    _Atomic(head_closure_t) exc_closure __attribute__((aligned(64)));
     // _Atomic(struct __cilkrts_stack_frame **) exc __attribute__((aligned(64)));
     // _Atomic(struct __cilkrts_stack_frame **) head __attribute__((aligned(CILK_CACHE_LINE)));
 

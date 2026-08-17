@@ -312,9 +312,10 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf,
        comment in do_dekker_on. */
     atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
 
-    uint64_t head = atomic_load_explicit(
-        (_Atomic(uint64_t) *)&w->exc_closure,
-        memory_order_seq_cst);
+    uint64_t head = torn_read_head_from_exc_closure(w, memory_order_seq_cst);
+    //uint64_t head = atomic_load_explicit(
+    //    (_Atomic(uint64_t) *)&w->exc_closure,
+    //    memory_order_seq_cst);
 
     // __cilkrts_stack_frame **hqead = unpack_exc(exc_closure);
     // printf("w %d    exc_orig %p    exc %p\n", w->self, exc_orig, exc);
@@ -330,8 +331,10 @@ __cilkrts_leave_frame_helper(__cilkrts_stack_frame *sf,
     
 
     if (__builtin_expect(head >= tail, false)) {
-        double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-        head = unpack_exc(exc_closure);
+        Closure *cl = torn_read_cl_from_exc_closure(w, memory_order_acquire);
+        head_closure_t exc_closure = pack_pointers(head, cl);
+        //head_closure_t exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+        //head = unpack_exc(exc_closure);
         if (head == tail && atomic_compare_exchange_strong_explicit(&w->exc_closure, &exc_closure, pack_pointers(head + 1, unpack_closure(exc_closure)), memory_order_seq_cst, memory_order_relaxed)) {
             // won the race
             // stodo should i do tail+1
@@ -407,9 +410,10 @@ __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
         /* The store of tail must precede the load of exc in global order.
            See comment in do_dekker_on. */
         atomic_store_explicit(&w->tail, tail, memory_order_seq_cst);
-        uint64_t head = atomic_load_explicit(
-            (_Atomic(uint64_t) *)&w->exc_closure,
-            memory_order_seq_cst);
+        uint64_t head = torn_read_head_from_exc_closure(w, memory_order_seq_cst);
+            //atomic_load_explicit(
+            //(_Atomic(uint64_t) *)&w->exc_closure,
+            //memory_order_seq_cst);
         // CILK_ASSERT(w, exc_orig == exc);
         /* Currently no other modifications of flags are atomic so this
            one isn't either.  If the thief wins it may run in parallel
@@ -418,9 +422,12 @@ __cilkrts_pause_frame(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent,
         if (__builtin_expect(head >= tail, false)) {
           //Cilk_exception_handler(w, exn, head, tail, unpack_closure(exc_closure));
 
-          double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
-          head = unpack_exc(exc_closure);
-          if (head == tail && atomic_compare_exchange_strong_explicit(&w->exc_closure, &exc_closure, pack_pointers(head + 1, unpack_closure(exc_closure)), memory_order_seq_cst, memory_order_relaxed)) {
+          //head_closure_t exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_seq_cst);
+          //head = unpack_exc(exc_closure);
+          Closure *cl = torn_read_cl_from_exc_closure(w, memory_order_acquire);
+          head_closure_t exc_closure = pack_pointers(head, cl);
+
+          if (head == tail && atomic_compare_exchange_strong_explicit(&w->exc_closure, &exc_closure, pack_pointers(head + 1, cl), memory_order_seq_cst, memory_order_relaxed)) {
               // won the race
               // stodo should i do tail+1
               // //printf("w   %d  won the race setting head   closure   %p    exc   %p    tail    %p\n", self, t, old_exc + 1, tail + 1);

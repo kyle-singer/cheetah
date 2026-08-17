@@ -269,7 +269,7 @@ void Cilk_set_return(__cilkrts_worker *const w) {
     // deque_lock_self(deques, self);
     // t_orig = deque_peek_bottom(deques, w, self, self);
     // could have been stolen from
-    double_ptr fetch = atomic_load_explicit(&w->exc_closure, memory_order_relaxed);
+    head_closure_t fetch = atomic_load_explicit(&w->exc_closure, memory_order_relaxed);
     t = unpack_closure(fetch);
     uint64_t old_exc = unpack_exc(fetch);
     //printf("returning");
@@ -291,7 +291,7 @@ void Cilk_set_return(__cilkrts_worker *const w) {
 
     Closure *call_parent = t->call_parent;
 
-    double_ptr new_value = pack_pointers(old_exc, call_parent);
+    head_closure_t new_value = pack_pointers(old_exc, call_parent);
     atomic_store_explicit(&w->exc_closure, new_value, memory_order_release);
 
     // bool success = expected_abort(w, old_exc, call_parent, &fetch);
@@ -771,7 +771,7 @@ void Cilk_exception_handler(__cilkrts_worker *w, char *exn, uint64_t head, uint6
 
     /* These will not change while the deque is locked. */
     // we failed the cas so we need to get our new closure
-    // double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_acquir);
+    // head_closure_t exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_acquir);
     // t = unpack_closure(old_value);
     // __cilkrts_stack_frame **head = unpack_exc(old_value);
 
@@ -851,7 +851,7 @@ static uint64_t do_dekker_on(__cilkrts_worker *const w,
      * stack
      */
 
-    //  double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_acquire);
+    //  head_closure_t exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_acquire);
     // __cilkrts_stack_frame **head = unpack_exc(exc_closure);
     // Closure *cur_closure = unpack_closure(exc_closure);
 
@@ -860,7 +860,7 @@ static uint64_t do_dekker_on(__cilkrts_worker *const w,
     // __cilkrts_stack_frame **tail =
     //     atomic_load_explicit(&victim_w->tail, memory_order_acquire);
 
-    double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_seq_cst);
+    head_closure_t exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_seq_cst);
     uint64_t head = unpack_exc(exc_closure);
     Closure *cur_closure = unpack_closure(exc_closure);
 
@@ -1144,8 +1144,8 @@ static Closure *extract_top_spawning_closure(uint64_t head,
     }
 
     // attempt to commit the steal by incrementing the exception pointer of the victim
-    double_ptr old_value = pack_pointers(head, cl);
-    double_ptr new_value = pack_pointers(head + 1, child);
+    head_closure_t old_value = pack_pointers(head, cl);
+    head_closure_t new_value = pack_pointers(head + 1, child);
     if (!atomic_compare_exchange_weak_explicit(&victim_w->exc_closure, &old_value, new_value, memory_order_seq_cst, memory_order_relaxed)) {
         // we might have suspended the victim and the victim returned but we didnt succeed in steal
         //printf("w       %d      aborted at end      victim      %d   expect_exc     %p   victim_exc  %p      victim_closure  %p\n", w->self, victim_w->self, head, unpack_exc(old_value), unpack_closure(old_value));
@@ -1261,8 +1261,8 @@ static Closure *extract_top_spawning_closure(uint64_t head,
     
 //     Closure* cur_head = NULL;
 //     Closure* head_next = NULL;
-//     double_ptr stamped_cur_head;
-//     double_ptr stamped_head_next;
+//     head_closure_t stamped_cur_head;
+//     head_closure_t stamped_head_next;
     
 //     while (true) {
 //         stamped_cur_head = atomic_load_explicit(&w->g->stack_free_list_head, memory_order_seq_cs);
@@ -1424,7 +1424,7 @@ static Closure *Closure_steal(__cilkrts_worker **workers,
 
     // Fast test for an unsuccessful steal attempt using only read operations.
     // This fast test seems to improve parallel performance.
-    double_ptr exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_relaxed);
+    head_closure_t exc_closure = atomic_load_explicit(&victim_w->exc_closure, memory_order_relaxed);
     uint64_t head = unpack_exc(exc_closure);
     uint64_t tail = atomic_load_explicit(&victim_w->tail, memory_order_relaxed);
 
@@ -1642,7 +1642,7 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
     worker_id self = w->self;
     // deque_lock_self(deques, self);
     // t_orig = deque_peek_bottom(deques, w, self, self);
-    double_ptr exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_relaxed);
+    head_closure_t exc_closure = atomic_load_explicit(&w->exc_closure, memory_order_relaxed);
     t = unpack_closure(exc_closure);
     uint64_t old_exc = unpack_exc(exc_closure);
     uint64_t tail = atomic_load_explicit(&w->tail, memory_order_relaxed);
@@ -1692,7 +1692,7 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
                 // join counter changed
                 Closure_change_status(w, t, CLOSURE_SYNC, CLOSURE_RUNNING);
             } else {
-                double_ptr new_value = pack_pointers(old_exc, (Closure *)NULL);
+                head_closure_t new_value = pack_pointers(old_exc, (Closure *)NULL);
                 atomic_store_explicit(&w->exc_closure, new_value, memory_order_release);
                 suspended = true;
                 break;
@@ -1704,7 +1704,7 @@ int Cilk_sync(__cilkrts_worker *const w, __cilkrts_stack_frame *frame) {
             //printf("suspend  %d   closure  %p\n", self, cl);
 
             //wont work stodo
-            // double_ptr fetch = pack_pointers(old_exc, cl);
+            // head_closure_t fetch = pack_pointers(old_exc, cl);
 
             // STODO do i need to loop
             

@@ -65,7 +65,7 @@ static void workers_init(global_state *g) {
             // back on.
             __cilkrts_init_tls_worker(0, g);
             atomic_store_explicit(&g->dummy_worker.tail, 0, memory_order_relaxed);
-            atomic_store_explicit(&g->dummy_worker.exc_closure, 0, memory_order_relaxed);
+            atomic_store_explicit(&g->dummy_worker.exc_closure, pack_pointers(0, NULL), memory_order_relaxed);
         } else {
             g->workers[i] = &g->dummy_worker;
         }
