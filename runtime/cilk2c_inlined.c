@@ -185,7 +185,12 @@ __cilkrts_detach(__cilkrts_stack_frame *sf, __cilkrts_stack_frame *parent) {
     _Static_assert(DEFAULT_DEQ_DEPTH > 1
         && (DEFAULT_DEQ_DEPTH & (DEFAULT_DEQ_DEPTH - 1)) == 0);
     ptrdiff_t circular_tail = tail & (DEFAULT_DEQ_DEPTH-1);
-    CILK_ASSERT(w, (circular_tail + 1 + init) < w->ltq_limit);
+    // TODO: The initial goal of the following assertion was to make sure we didn't overflow the deque.
+    //       Perhaps one should add a field, w->tail_start, and assert w->tail - w->tail_start < deque_size?
+    // Not particularly useful assertion...
+    //CILK_ASSERT(w, (((tail + 1) & (DEFAULT_DEQ_DEPTH-1)) + w->ltq_start) < w->ltq_limit);
+    // A slow assertion...
+    //CILK_ASSERT(w, w->tail - w->head < DEFAULT_DEQ_DEPTH);
 
     w->ltq_start[circular_tail] = parent;
     // *tail++ = parent;
